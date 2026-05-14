@@ -1,0 +1,453 @@
+{% extends "base.html" %}
+{% set active_page = "dryers" %}
+
+{% block title %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 data-i18n="dryers"></h2>
+        <p class="subtitle" data-i18n="dryer_manage"></p>
+    </div>
+    <button class="btn btn-primary" onclick="openDryerModal()" id="btn-add-dryer">
+        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+        <span data-i18n="add_dryer"></span>
+    </button>
+</div>
+
+<div id="dryers-loading" class="loading-overlay"><div class="spinner"></div> <span data-i18n="loading"></span></div>
+<div class="item-grid" id="dryers-grid"></div>
+<div id="dryers-empty" class="hidden empty-state">
+    <div class="empty-icon"><svg class="icon" width="48" height="48" viewBox="0 0 24 24" style="opacity:0.3"><use href="/static/icons/tabler-sprite.svg#tabler-droplet-off"></use></svg></div>
+    <p data-i18n="dryers_empty"></p>
+    <button class="btn btn-primary btn-sm" onclick="openDryerModal()">
+        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+        <span data-i18n="dryers_first"></span>
+    </button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script id="filament-types-data" type="application/json">
+    {{ filament_types | default([]) | tojson | safe }}
+</script>
+
+<script>
+let ALL_FILAMENT_TYPES = [];
+let ALL_DRYER_PRESETS = [];
+
+document.addEventListener('DOMContentLoaded', async () => {
+    ALL_FILAMENT_TYPES = JSON.parse(document.getElementById('filament-types-data').textContent);
+    
+    // Load presets
+    try {
+        const res = await fetch('/static/js/dryer_presets.json');
+        if (res.ok) ALL_DRYER_PRESETS = await res.json();
+    } catch(e) { console.error("Failed to load dryer presets", e); }
+    
+    loadDryers();
+});
+
+async function loadDryers() {
+    document.getElementById('dryers-loading').classList.remove('hidden');
+    document.getElementById('dryers-grid').innerHTML = '';
+    document.getElementById('dryers-empty').classList.add('hidden');
+
+    try {
+        const dryers = await apiGet('/api/dryers');
+        document.getElementById('dryers-loading').classList.add('hidden');
+
+        if (dryers.length === 0) {
+            document.getElementById('dryers-empty').classList.remove('hidden');
+            return;
+        }
+
+        document.getElementById('dryers-grid').innerHTML = dryers.map(d => `
+            <div class="item-card">
+                <div class="item-card-header">
+                    <div class="item-name">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24" style="margin-right:8px;"><use href="/static/icons/tabler-sprite.svg#tabler-droplet-off"></use></svg>
+                        ${escapeHtml(d.name)}
+                    </div>
+                    <button class="btn btn-icon btn-secondary btn-sm" onclick='openDryerModal(${JSON.stringify(d)})' title="${t('edit')}">
+                        <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-settings"></use></svg>
+                    </button>
+                </div>
+                <div class="item-detail"><span class="label" data-i18n="max_wattage"></span><span class="detail-value">${d.max_wattage}W</span></div>
+                <div class="item-detail"><span class="label" data-i18n="power_factor"></span><span class="detail-value text-accent">${d.power_factor}</span></div>
+                <div class="item-detail"><span class="label" data-i18n="ams_power"></span><span class="detail-value">${d.has_ams ? `<span style="color: var(--text-muted); font-size: 0.85rem;">(incl. ${d.ams_wattage}W AMS)</span>` : '<span style="color: var(--text-muted);">--</span>'}</span></div>
+            </div>
+        `).join('');
+        translatePage();
+    } catch (err) {
+        showToast(t('error') + ': ' + err.message, 'error');
+    }
+}
+
+function cloneDryer(d) {
+    const clone = {...d};
+    delete clone.id;
+    clone.name = clone.name + ' (' + t('copy') + ')';
+    openDryerModal(clone, false);
+}
+
+async function openDryerModal(dryer = null, isEdit = null) {
+    if (isEdit === null) isEdit = (dryer !== null && dryer.id !== undefined);
+    const title = isEdit ? t('dryer_edit') : t('dryer_new');
+
+    let calibsHtml = '';
+    
+    if (isEdit) {
+        document.getElementById('dryers-loading').classList.remove('hidden');
+        try {
+            const calibs = await apiGet(`/api/dryers/${dryer.id}/calibrations`);
+            
+            const calibRows = calibs.length === 0 ? `<div class="empty-state text-muted" data-i18n="calibration_none"></div>` : calibs.map(c => `
+                <div class="modal-list-item">
+                    <div class="item-info">
+                        <div class="item-primary">${escapeHtml(c.filament_type_name)}</div>
+                        <div class="item-secondary"><span data-i18n="power_factor"></span>: <span class="text-accent">${formatNumber(c.power_factor, 3)}</span></div>
+                    </div>
+                    <div class="item-actions">
+                        <button class="btn btn-danger btn-sm btn-icon" onclick="deleteDryerCalib(${dryer.id}, ${c.filament_type_id})">
+                            <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-trash"></use></svg>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+
+            calibsHtml = `
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--border-subtle);">
+            <h4 style="margin-bottom: 15px; font-weight: 700; font-size: 0.9rem; text-transform: uppercase; color: var(--text-secondary);" data-i18n="calibration_title_filament"></h4>
+            <div class="modal-list" style="margin-bottom: 1.5rem;">
+                ${calibRows}
+            </div>
+            
+            <div class="card" style="background: var(--bg-panel); padding: 1.25rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
+                <p style="margin-top: 0; font-size: 0.85rem; font-weight: 700; color: var(--text-primary); margin-bottom: 1rem;" data-i18n="new_measurement"></p>
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label data-i18n="filament_type" style="font-size: 0.75rem;"></label>
+                    <select id="nc-filament-type" class="form-control">
+                        ${ALL_FILAMENT_TYPES.map(ft => `<option value="${ft.id}">${escapeHtml(ft.name)}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-row" style="margin-bottom: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="form-group">
+                        <input type="text" id="nc-duration" class="form-control" data-i18n-placeholder="time_hint" placeholder="" oninput="updateCalibPreview()">
+                    </div>
+                    <div class="form-group">
+                        <input type="number" id="nc-kwh" class="form-control" data-i18n-placeholder="measured_kwh" placeholder="" step="0.001" oninput="updateCalibPreview('kwh')">
+                    </div>
+                </div>
+                <div style="text-align: center; margin-bottom: 1rem; color: var(--text-muted); font-size: 0.8rem;">
+                    <span data-i18n="or"></span>
+                </div>
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label style="font-size: 0.75rem;"><span data-i18n="avg_power"></span> (Watt)</label>
+                    <input type="number" id="nc-watt" class="form-control" placeholder="25" oninput="updateCalibPreview('watt')">
+                </div>
+                <div id="calib-preview" class="hidden" style="background: var(--bg-body); padding: 10px; border-radius: 4px; margin-bottom: 1rem; text-align: center; border: 1px solid var(--border-subtle);">
+                    <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted);" data-i18n="power_factor"></div>
+                    <div id="calib-preview-value" style="font-size: 1.25rem; font-weight: 700; color: var(--accent);">0.000</div>
+                </div>
+                <button class="btn btn-secondary btn-sm" style="width: 100%" onclick="addDryerCalib(${dryer.id})" data-i18n="calc_and_save"></button>
+            </div>
+            `;
+        } catch (e) {
+            showToast(t('error_calib_load'), 'error');
+        }
+        document.getElementById('dryers-loading').classList.add('hidden');
+    }
+
+    document.getElementById('modal-title').textContent = title;
+    
+    let modalBody = '';
+    
+    // Add presets for new dryers
+    if (!isEdit) {
+        modalBody += `
+            <div class="form-group" style="background: var(--bg-subtle); padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle); margin-bottom: 15px;">
+                <label for="m-dryer-preset" style="font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <svg class="icon" width="20" height="20" viewBox="0 0 24 24" style="color: var(--accent-color);"><use href="/static/icons/tabler-sprite.svg#tabler-template"></use></svg>
+                    <span data-i18n="presets"></span>
+                </label>
+                <select id="m-dryer-preset" class="form-control" onchange="applyDryerPreset(this.value)">
+                    <option value="" data-i18n="select_preset"></option>
+                    ${(() => {
+                        const groups = {};
+                        ALL_DRYER_PRESETS.forEach((p, i) => {
+                            if (!groups[p.brand]) groups[p.brand] = [];
+                            groups[p.brand].push({ p, i });
+                        });
+                        return Object.keys(groups).map(brand => `
+                            <optgroup label="${escapeHtml(brand)}">
+                                ${groups[brand].map(item => `<option value="${item.i}">${escapeHtml(item.p.name)}</option>`).join('')}
+                            </optgroup>
+                        `).join('');
+                    })()}
+                </select>
+                <small style="color: var(--text-muted); display: block; margin-top: 6px; font-size: 0.8rem;">
+                    <span data-i18n="presets_info"></span>
+                </small>
+            </div>
+        `;
+    }
+
+    modalBody += `
+        <div class="form-group">
+            <label for="m-dryer-name" data-i18n="name"></label>
+            <input type="text" class="form-control" id="m-dryer-name" placeholder="" value="${dryer ? escapeHtml(dryer.name) : ''}" required>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="m-dryer-max-wattage"><span data-i18n="max_wattage"></span> (Watt)</label>
+                <input type="number" class="form-control" id="m-dryer-max-wattage" min="0" value="${dryer ? dryer.max_wattage : '50'}" required oninput="updateCalibPreview()">
+            </div>
+            <div class="form-group">
+                <label for="m-dryer-power-factor">
+                    <span data-i18n="power_factor"></span>
+                    <span class="label-info" onclick="showInfo(event, 'pf_definition_hint')" data-i18n-title="pf_definition_hint">?</span>
+                </label>
+                <input type="number" class="form-control" id="m-dryer-power-factor" step="0.001" min="0" max="1" value="${dryer ? dryer.power_factor : '1.000'}" required>
+            </div>
+        </div>
+        
+        <div class="form-group" style="margin-top: 10px;">
+            <label class="form-switch">
+                <span class="switch">
+                    <input type="checkbox" id="m-dryer-has-ams" onchange="toggleDryerAMS()" ${dryer && dryer.has_ams ? 'checked' : ''}>
+                    <span class="slider"></span>
+                </span>
+                <span style="font-weight: 500;" data-i18n="ams_functionality"></span>
+            </label>
+        </div>
+        <div class="form-row ${dryer && dryer.has_ams ? '' : 'hidden'}" id="m-dryer-ams-container" style="background: var(--bg-body); padding: 15px; border-radius: 6px; margin-bottom: 10px;">
+            <div class="form-group">
+                <label for="m-dryer-ams-wattage"><span data-i18n="ams_power"></span> (Watt)</label>
+                <input type="number" class="form-control" id="m-dryer-ams-wattage" min="0" value="${dryer ? dryer.ams_wattage : '0'}">
+            </div>
+        </div>
+
+        ${calibsHtml}
+    `;
+
+    document.getElementById('modal-body').innerHTML = modalBody;
+
+    const modalFooter = document.getElementById('modal-footer');
+    if (isEdit) {
+        modalFooter.classList.add('footer-actions-between');
+        modalFooter.innerHTML = `
+            <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary btn-sm" onclick='cloneDryer(${JSON.stringify(dryer)})'>
+                    <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-copy"></use></svg>
+                    <span data-i18n="clone"></span>
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="confirmDeleteDryer(${dryer.id}, '${escapeHtml(dryer.name)}')">
+                    <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-trash"></use></svg>
+                    <span data-i18n="delete"></span>
+                </button>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary" onclick="closeModal()">
+                    <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-x"></use></svg>
+                    <span data-i18n="cancel"></span>
+                </button>
+                <button class="btn btn-primary" onclick="saveDryer(${dryer.id})">
+                    <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-device-floppy"></use></svg>
+                    <span data-i18n="save"></span>
+                </button>
+            </div>
+        `;
+    } else {
+        modalFooter.classList.remove('footer-actions-between');
+        modalFooter.innerHTML = `
+            <button class="btn btn-secondary" onclick="closeModal()">
+                <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-x"></use></svg>
+                <span data-i18n="cancel"></span>
+            </button>
+            <button class="btn btn-primary" onclick="saveDryer(null)">
+                <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-device-floppy"></use></svg>
+                <span data-i18n="save"></span>
+            </button>
+        `;
+    }
+
+    openModal();
+    translatePage();
+}
+
+function applyDryerPreset(index) {
+    if (index === "") return;
+    const p = ALL_DRYER_PRESETS[parseInt(index)];
+    if (!p) return;
+    
+    document.getElementById('m-dryer-name').value = p.name;
+    document.getElementById('m-dryer-max-wattage').value = p.max_wattage;
+    document.getElementById('m-dryer-power-factor').value = p.power_factor;
+    document.getElementById('m-dryer-has-ams').checked = p.has_ams;
+    document.getElementById('m-dryer-ams-wattage').value = p.ams_wattage;
+    toggleDryerAMS();
+}
+
+async function saveDryer(id) {
+    const data = {
+        name: document.getElementById('m-dryer-name').value,
+        max_wattage: parseInt(document.getElementById('m-dryer-max-wattage').value),
+        power_factor: parseFloat(document.getElementById('m-dryer-power-factor').value),
+        has_ams: document.getElementById('m-dryer-has-ams').checked,
+        ams_wattage: parseInt(document.getElementById('m-dryer-ams-wattage').value) || 0,
+        ams_power_factor: 1.0,
+    };
+
+    if (!data.name || isNaN(data.max_wattage) || isNaN(data.power_factor)) {
+        showToast(t('fill_all_fields'), 'error');
+        return;
+    }
+
+    try {
+        if (id) {
+            await apiPut(`/api/dryers/${id}`, data);
+        } else {
+            await apiPost('/api/dryers', data);
+        }
+        closeModal();
+        loadDryers();
+        showToast(t('success'), 'success');
+    } catch (err) {
+        showToast(t('error') + ': ' + err.message, 'error');
+    }
+}
+
+function toggleDryerAMS() {
+    const isChecked = document.getElementById('m-dryer-has-ams').checked;
+    const container = document.getElementById('m-dryer-ams-container');
+    if (isChecked) {
+        container.classList.remove('hidden');
+    } else {
+        container.classList.add('hidden');
+    }
+}
+
+function confirmDeleteDryer(id, name) {
+    openConfirmModal(
+        t('delete'),
+        `"${name}" ${t('delete_confirm')}`,
+        async () => {
+            await apiDelete(`/api/dryers/${id}`);
+            showToast(t('success'), 'success');
+            loadDryers();
+        }
+    );
+}
+
+async function addDryerCalib(dryerId) {
+    const dryerMaxWattage = parseInt(document.getElementById('m-dryer-max-wattage').value);
+    const filamentTypeId = parseInt(document.getElementById('nc-filament-type').value);
+    let duration = 0;
+    try {
+        duration = parseTimeInput(document.getElementById('nc-duration').value, 'hours');
+    } catch(e) {
+        showToast(t('error') + ': ' + t('invalid_time_format'), 'error');
+        return;
+    }
+    const kwhTotal = parseFloat(document.getElementById('nc-kwh').value);
+    const wattAvg = parseFloat(document.getElementById('nc-watt').value);
+    
+    if (!filamentTypeId || isNaN(dryerMaxWattage)) {
+        showToast(t('fill_all_fields'), 'error');
+        return;
+    }
+
+
+    const dryerAmsWattage = document.getElementById('m-dryer-has-ams').checked ? (parseInt(document.getElementById('m-dryer-ams-wattage').value) || 0) : 0;
+    const heaterPower = Math.max(1, dryerMaxWattage - dryerAmsWattage);
+
+    let pf = 0;
+    if (!isNaN(wattAvg)) {
+        pf = wattAvg / heaterPower;
+    } else if (!isNaN(duration) && !isNaN(kwhTotal)) {
+        pf = (kwhTotal / duration) / (heaterPower / 1000);
+    } else {
+        showToast(t('fill_all_fields'), 'error');
+        return;
+    }
+
+    
+    if (pf > 1) pf = 1.0;
+    if (pf < 0) pf = 0.0;
+
+    
+    try {
+        await apiPost(`/api/dryers/${dryerId}/calibrations`, {
+            filament_type_id: filamentTypeId,
+            power_factor: pf
+        });
+        showToast(t('success') + `! Power Factor: ${formatNumber(pf, 3)}`, 'success');
+        
+        // Properly reload the modal data without resetting the main dryer power factor
+        const currentDryer = await apiGet(`/api/dryers/${dryerId}`);
+        openDryerModal(currentDryer);
+        loadDryers(); // refresh background grid
+    } catch (e) {
+        showToast(t('error') + ': ' + e.message, 'error');
+    }
+}
+
+async function deleteDryerCalib(dryerId, filamentTypeId) {
+    openConfirmModal(
+        t('delete'),
+        t('delete_confirm'),
+        async () => {
+            try {
+                await apiDelete(`/api/dryers/${dryerId}/calibrations/${filamentTypeId}`);
+                showToast(t('success'), 'success');
+                closeModal();
+                loadDryers();
+            } catch (e) {
+                showToast(t('error') + ': ' + e.message, 'error');
+            }
+        }
+    );
+}
+function updateCalibPreview(source) {
+    const maxWatt = parseInt(document.getElementById('m-dryer-max-wattage').value);
+    const amsWatt = document.getElementById('m-dryer-has-ams').checked ? (parseInt(document.getElementById('m-dryer-ams-wattage').value) || 0) : 0;
+    const heaterPower = Math.max(1, maxWatt - amsWatt);
+    let duration = 0;
+    try {
+        duration = parseTimeInput(document.getElementById('nc-duration').value, 'hours');
+    } catch(e) {}
+    const kwhTotal = parseFloat(document.getElementById('nc-kwh').value);
+    const wattAvg = parseFloat(document.getElementById('nc-watt').value);
+    const previewContainer = document.getElementById('calib-preview');
+    const previewValue = document.getElementById('calib-preview-value');
+
+    if (isNaN(maxWatt) || maxWatt <= 0) return;
+
+    // Clear other source if one is typed
+    if (source === 'watt' && !isNaN(wattAvg)) {
+        document.getElementById('nc-duration').value = '';
+        document.getElementById('nc-kwh').value = '';
+    } else if ((source === 'kwh' || source === undefined) && (duration > 0 || !isNaN(kwhTotal))) {
+        document.getElementById('nc-watt').value = '';
+    }
+
+    let pf = NaN;
+    if (!isNaN(wattAvg)) {
+        pf = wattAvg / heaterPower;
+    } else if (duration > 0 && !isNaN(kwhTotal)) {
+        pf = (kwhTotal / duration) / (heaterPower / 1000);
+    }
+
+
+    if (!isNaN(pf)) {
+        if (pf > 1) pf = 1.0;
+        if (pf < 0) pf = 0.0;
+        previewValue.textContent = formatNumber(pf, 3);
+        previewContainer.classList.remove('hidden');
+    } else {
+        previewContainer.classList.add('hidden');
+    }
+}
+</script>
+{% endblock %}

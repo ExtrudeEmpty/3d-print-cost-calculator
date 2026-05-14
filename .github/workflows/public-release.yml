@@ -1,0 +1,40 @@
+name: Public Release Snapshot
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger bei Tags wie v1.0.0, v2.1.3 etc.
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout private repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare public release branch
+        run: |
+          # Git konfigurieren
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          
+          # Orphan Branch erstellen (keine Historie)
+          git checkout --orphan temp-public-release
+          
+          # Alle Dateien hinzufügen
+          git add .
+          
+          # Interne Dateien entfernen, die NICHT public sein sollen
+          # .github/workflows wird ebenfalls entfernt, damit die Action nicht im public Repo landet
+          git rm --cached release.sh .github/workflows/public-release.yml --quiet -r --ignore-unmatch
+          
+          git commit -m "Release ${{ github.ref_name }}"
+
+      - name: Push to public repository
+        env:
+          PUBLIC_REPO_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          # Push zum öffentlichen Repo (Main Branch)
+          git push https://x-access-token:${PUBLIC_REPO_TOKEN}@github.com/ExtrudeEmpty/3d-print-cost-calculator.git temp-public-release:main --force

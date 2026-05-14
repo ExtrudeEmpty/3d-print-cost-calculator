@@ -1,0 +1,777 @@
+{% extends "base.html" %}
+{% set active_page = "order_new" %}
+
+{% block title %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 data-i18n="new_order"></h2>
+        <p class="subtitle" data-i18n="new_order_title"></p>
+    </div>
+</div>
+
+<div class="calc-layout">
+    <!-- Form -->
+    <div class="card">
+        <form id="calc-form" onsubmit="return false;">
+            <!-- Printer Selection -->
+            <div class="form-group">
+                <label for="printer_id" data-i18n="printers"></label>
+                <select class="form-control" id="printer_id" name="printer_id" required onchange="onPrinterChange()">
+                    <option value="" data-i18n="printer_select"></option>
+                    {% for p in printers %}
+                    <option value="{{ p.id }}" 
+                            data-pref-dryer="{{ p.preferred_dryer_id or '' }}"
+                            data-has-chamber="{{ 'true' if p.has_heated_chamber else 'false' }}">
+                        {{ p.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <hr style="border: none; border-top: 1px dashed var(--border-subtle); margin: 1rem 0;">
+
+            <!-- Filament Management Section -->
+            <div class="filament-section">
+                <div style="font-weight: 500; font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+                    <span data-i18n="filament_used"></span>
+                    <div>
+                       <button type="button" class="btn btn-secondary btn-sm" onclick="addMaterialRow()">
+                           <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+                           <span data-i18n="add_filament"></span>
+                       </button>
+                    </div>
+                </div>
+
+                <!-- Material Table Header -->
+                <div class="material-grid" style="margin-bottom: 0.25rem; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.25rem;">
+                    <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600;" data-i18n="materials"></div>
+                    <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600;" data-i18n="weight"></div>
+                    <div></div>
+                </div>
+                
+                <div id="materials-container">
+                    <div class="material-grid material-row">
+                        <div class="form-group">
+                            <select class="form-control mat-select primary-mat" required onchange="onMaterialChange()">
+                                <option value="" data-i18n="material_select"></option>
+                                {% for m in materials %}
+                                <option value="{{ m.id }}" 
+                                        data-dryer-mode="{{ m.suggested_dryer_mode }}" 
+                                        data-dryer-pre="{{ m.suggested_dryer_pre_hours }}" 
+                                        data-needs-dryer="{{ 'true' if m.needs_dryer else 'false' }}"
+                                        data-needs-chamber="{{ 'true' if m.needs_chamber else 'false' }}">
+                                    {{ m.name }} ({{ m.filament_type_name }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <input type="number" class="form-control mat-weight" data-i18n-placeholder="weight_placeholder" placeholder="" step="0.1" min="0.1" required oninput="debouncedRecalc()">
+                        </div>
+                        <div class="form-group" style="display:flex; justify-content:center;">
+                             <button type="button" class="btn btn-danger btn-icon" onclick="removeMaterialRow(this)" style="width: 38px; height:38px; visibility:hidden;">
+                                 <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-trash"></use></svg>
+                             </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <hr style="border: none; border-top: 1px dashed var(--border-subtle); margin: 1rem 0;">
+            <div style="font-weight: 500; font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--text-muted);" data-i18n="thermal_pretreatment"></div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="dryer_id" data-i18n="dryers"></label>
+                    <select class="form-control" id="dryer_id" name="dryer_id" onchange="onDryerSelectionChange()">
+                        <option value="" data-i18n="dryer_none"></option>
+                        {% for d in dryers %}
+                        <option value="{{ d.id }}" data-has-ams="{{ 'true' if d.has_ams else 'false' }}">{{ d.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group hidden" id="dryer-mode-container">
+                    <label for="dryer_mode" data-i18n="dryer_mode"></label>
+                    <select class="form-control" id="dryer_mode" name="dryer_mode" onchange="onDryerSelectionChange()">
+                        <option value="none" data-i18n="none"></option>
+                        <option value="pre_only" data-i18n="pre_dry"></option>
+                        <option value="during_only" data-i18n="during_dry"></option>
+                        <option value="pre_and_during" data-i18n="both_dry"></option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row hidden" id="dryer-prehours-container">
+                <div class="form-group">
+                    <label for="dryer_pre_hours" data-i18n="dryer_pre_label"></label>
+                    <input type="text" id="dryer_pre_hours" name="dryer_pre_hours" class="form-control" data-i18n-placeholder="time_hint" placeholder="" value="0" oninput="debouncedRecalc()">
+                    <small class="input-hint" data-i18n="time_hint"></small>
+                </div>
+            </div>
+
+            <div class="form-row hidden" id="dryer-ams-container" style="margin-top: -5px;">
+                <div class="form-group">
+                    <label class="form-switch">
+                        <span class="switch">
+                            <input type="checkbox" id="use_dryer_ams" name="use_dryer_ams" onchange="recalculate()">
+                            <span class="slider"></span>
+                        </span>
+                        <span style="color: var(--accent);" data-i18n="use_dryer_ams_label"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <!-- Chamber Heating (New) -->
+            <div class="form-row hidden" id="chamber-container" style="margin-top: -5px;">
+                <div class="form-group">
+                    <label class="form-switch">
+                        <span class="switch">
+                            <input type="checkbox" id="use_heated_chamber" name="use_heated_chamber" onchange="recalculate()">
+                            <span class="slider"></span>
+                        </span>
+                        <span style="color: var(--accent);" data-i18n="use_heated_chamber_label"></span>
+                    </label>
+                </div>
+            </div>
+            <hr style="border: none; border-top: 1px dashed var(--border-subtle); margin: 1rem 0;">
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="print_time_hours" data-i18n="print_time_label"></label>
+                    <input type="text" id="print_time_hours" name="print_time_hours" class="form-control" data-i18n-placeholder="time_hint" placeholder="" oninput="debouncedRecalc()">
+                    <small class="input-hint" data-i18n="time_hint"></small>
+                </div>
+            </div>
+
+            <!-- Batch Mode -->
+            <div class="form-group" style="display:flex; align-items:center; gap:1.5rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+                <label class="form-switch" style="margin:0;">
+                    <span class="switch">
+                        <input type="checkbox" id="is_batch" name="is_batch" onchange="onBatchToggle()">
+                        <span class="slider"></span>
+                    </span>
+                    <span style="color: var(--accent);" data-i18n="batch_mode_label"></span>
+                </label>
+                <div id="batch-qty-container" style="display:none; align-items:center; gap:0.75rem;">
+                    <label for="batch_quantity" style="margin:0; color:var(--text-muted); font-size:0.875rem; white-space:nowrap;" data-i18n="batch_quantity_label"></label>
+                    <input type="number" id="batch_quantity" name="batch_quantity" class="form-control"
+                           style="width:90px;" min="2" step="1" value="2" oninput="debouncedRecalc()">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="postprocessing_minutes" data-i18n="postprocessing_label"></label>
+                    <input type="text" id="postprocessing_minutes" name="postprocessing_minutes" class="form-control" data-i18n-placeholder="time_hint" placeholder="" value="0" oninput="onPostprocessingInput()">
+                    <small class="input-hint" data-i18n="time_hint"></small>
+                </div>
+            </div>
+
+            <div class="form-group" style="display:flex; align-items:center; gap:1.5rem; margin-bottom:0.5rem;">
+                <label class="form-switch" style="margin:0;">
+                    <span class="switch">
+                        <input type="checkbox" id="supports" name="supports" onchange="onSupportsChange()">
+                        <span class="slider"></span>
+                    </span>
+                    <span data-i18n="supports_label"></span>
+                </label>
+                <small id="supports-hint" style="display:none; color:var(--warning, #f59e0b); font-size:0.8rem;" data-i18n="supports_postprocessing_hint"></small>
+            </div>
+
+            <hr style="border: none; border-top: 1px solid var(--border-subtle); margin: 1.25rem 0;">
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="selling_price" data-i18n="selling_price_label"></label>
+                    <input type="number" class="form-control" id="selling_price" name="selling_price"
+                           data-i18n-placeholder="price_optional_placeholder" placeholder="" step="0.01" min="0">
+                </div>
+                <div class="form-group">
+                    <label for="other_costs" data-i18n="other_costs_label"></label>
+                    <input type="number" class="form-control" id="other_costs" name="other_costs"
+                           data-i18n-placeholder="other_costs_placeholder" placeholder="" step="0.01" min="0" value="0" onchange="recalculate()">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="customer_type" data-i18n="customer_tier"></label>
+                    <select class="form-control" id="customer_type" name="customer_type" onchange="recalculate()">
+                        <option value="private" data-i18n="private"></option>
+                        <option value="friends" data-i18n="friends"></option>
+                        <option value="business" data-i18n="business"></option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="customer_name" data-i18n="customer_name_label"></label>
+                    <input type="text" class="form-control" id="customer_name" name="customer_name"
+                           data-i18n-placeholder="customer_name_placeholder" placeholder="" maxlength="200">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="notes" data-i18n="notes_label"></label>
+                <textarea class="form-control" id="notes" name="notes" data-i18n-placeholder="notes_placeholder" placeholder="" rows="2"></textarea>
+            </div>
+
+            <button type="button" class="btn btn-primary" id="btn-save-order" onclick="saveOrder()" style="width: 100%; justify-content: center; padding: 0.8rem 3.5rem;">
+                <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-device-floppy"></use></svg>
+                <span data-i18n="save_order_btn"></span>
+            </button>
+        </form>
+    </div>
+
+    <!-- Price Result -->
+    <div class="calc-result" id="calc-result">
+        <div class="result-title" data-i18n="calculation_title"></div>
+        <div id="warnings-container" class="hidden" style="margin-bottom: 1rem;"></div>
+        <div id="calc-placeholder" class="empty-state" style="padding: 1.5rem 0;">
+            <div class="empty-icon"><svg class="icon" width="48" height="48" viewBox="0 0 24 24" style="opacity:0.3"><use href="/static/icons/tabler-sprite.svg#tabler-calculator"></use></svg></div>
+            <p data-i18n="calculation_placeholder"></p>
+        </div>
+        <div id="calc-display" class="hidden">
+            <div class="total-price" id="display-total">0,00 €</div>
+            <div class="profit-line" id="display-profit"></div>
+
+            <!-- Batch Per-Unit Price Card -->
+            <div id="batch-unit-card" class="hidden" style="
+                background: var(--bg-card);
+                border: 1px solid var(--accent);
+                border-radius: 10px;
+                padding: 0.75rem 1rem;
+                margin: 0.75rem 0;
+            ">
+                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.35rem;">
+                    <svg class="icon" width="18" height="18" viewBox="0 0 24 24" style="color:var(--accent);flex-shrink:0;"><use href="/static/icons/tabler-sprite.svg#tabler-package"></use></svg>
+                    <span style="font-size:0.8rem; font-weight:600; color:var(--accent);" data-i18n="batch_unit_price_label"></span>
+                    <span style="font-size:0.8rem; color:var(--text-muted);" id="batch-unit-count"></span>
+                </div>
+                <div style="font-size:1.5rem; font-weight:700; color:var(--text-primary);" id="display-unit-price">0,00 €</div>
+                <div style="display:flex; align-items:flex-start; gap:0.4rem; margin-top:0.5rem; padding-top:0.5rem; border-top:1px solid var(--border-subtle);">
+                    <svg class="icon" width="16" height="16" viewBox="0 0 24 24" style="color:var(--warning, #f59e0b);flex-shrink:0;margin-top:1px;"><use href="/static/icons/tabler-sprite.svg#tabler-alert-triangle"></use></svg>
+                    <span style="font-size:0.75rem; color:var(--text-muted); line-height:1.4;" data-i18n="batch_reorder_warning"></span>
+                </div>
+            </div>
+
+            <div class="cost-breakdown">
+                <div class="cost-row">
+                    <span class="cost-label" data-i18n="material_cost"></span>
+                    <span class="cost-value" id="display-material">0,00 €</span>
+                </div>
+                <div class="cost-row">
+                    <span class="cost-label" data-i18n="electricity_total"></span>
+                    <span class="cost-value" id="display-electricity">0,00 €</span>
+                </div>
+                <div class="cost-row">
+                    <span class="cost-label" data-i18n="depreciation_total"></span>
+                    <span class="cost-value" id="display-depreciation">0,00 €</span>
+                </div>
+                <div class="cost-row">
+                    <span class="cost-label" data-i18n="maintenance_total"></span>
+                    <span class="cost-value" id="display-maintenance">0,00 €</span>
+                </div>
+                <div class="cost-row">
+                    <span class="cost-label" data-i18n="labor_cost"></span>
+                    <span class="cost-value" id="display-labor">0,00 €</span>
+                </div>
+                <div class="cost-row" id="row-other-costs" style="display: none;">
+                    <span class="cost-label" data-i18n="other_costs"></span>
+                    <span class="cost-value" id="display-other-costs">0,00 €</span>
+                </div>
+                <div class="cost-row subtotal">
+                    <span class="cost-label" data-i18n="subtotal"></span>
+                    <span class="cost-value" id="display-subtotal">0,00 €</span>
+                </div>
+                <div class="cost-row">
+                    <span class="cost-label" data-i18n="profit_margin"></span>
+                    <span class="cost-value" id="display-margin">30%</span>
+                </div>
+            </div>
+        </div>
+        <div id="calc-loading" class="hidden" style="text-align: center; padding: 1rem;">
+            <div class="spinner" style="margin: 0 auto;"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script id="printers-data" type="application/json">
+    {{ printers | tojson | safe }}
+</script>
+<script id="materials-data" type="application/json">
+    {{ materials | tojson | safe }}
+</script>
+<script id="dryers-data" type="application/json">
+    {{ dryers | tojson | safe }}
+</script>
+<script id="filament-types-data" type="application/json">
+    {{ filament_types | default([]) | tojson | safe }}
+</script>
+
+<script>
+let calcTimeout = null;
+const PRINTERS = JSON.parse(document.getElementById('printers-data').textContent);
+const MATERIALS = JSON.parse(document.getElementById('materials-data').textContent);
+const DRYERS = JSON.parse(document.getElementById('dryers-data').textContent);
+const ALL_FILAMENT_TYPES = JSON.parse(document.getElementById('filament-types-data').textContent);
+
+function debouncedRecalc() {
+    clearTimeout(calcTimeout);
+    calcTimeout = setTimeout(recalculate, 300);
+}
+
+function onBatchToggle() {
+    const isBatch = document.getElementById('is_batch').checked;
+    const qtyContainer = document.getElementById('batch-qty-container');
+    qtyContainer.style.display = isBatch ? 'flex' : 'none';
+    debouncedRecalc();
+}
+
+function onSupportsChange() {
+    const hasSupports = document.getElementById('supports').checked;
+    const hint = document.getElementById('supports-hint');
+    const postInput = document.getElementById('postprocessing_minutes');
+    let postVal = 0;
+    try { postVal = parseTimeInput(postInput.value, 'minutes'); } catch(e) {}
+
+    if (hasSupports && postVal <= 0) {
+        hint.style.display = 'inline';
+        postInput.style.borderColor = 'var(--warning, #f59e0b)';
+    } else {
+        hint.style.display = 'none';
+        postInput.style.borderColor = '';
+    }
+    debouncedRecalc();
+}
+
+function onPostprocessingInput() {
+    const hasSupports = document.getElementById('supports').checked;
+    const postInput = document.getElementById('postprocessing_minutes');
+    const hint = document.getElementById('supports-hint');
+    let postVal = 0;
+    try { postVal = parseTimeInput(postInput.value, 'minutes'); } catch(e) {}
+
+    if (hasSupports && postVal <= 0) {
+        hint.style.display = 'inline';
+        postInput.style.borderColor = 'var(--warning, #f59e0b)';
+    } else {
+        hint.style.display = 'none';
+        postInput.style.borderColor = '';
+    }
+    debouncedRecalc();
+}
+
+function onPrinterChange() {
+    const printerSelect = document.getElementById('printer_id');
+    const selected = printerSelect.options[printerSelect.selectedIndex];
+    if (!selected || !selected.value) return;
+
+    const prefDryerId = selected.getAttribute('data-pref-dryer');
+    const dryerSelect = document.getElementById('dryer_id');
+
+    if (prefDryerId) {
+        dryerSelect.value = prefDryerId;
+        onDryerSelectionChange();
+        
+        // Auto-enable AMS if the preferred dryer is an AMS
+        const dryer = DRYERS.find(d => d.id == prefDryerId);
+        if (dryer && dryer.has_ams) {
+            document.getElementById('use_dryer_ams').checked = true;
+        }
+    }
+
+    const hasChamber = selected.getAttribute('data-has-chamber') === 'true';
+    const chamberContainer = document.getElementById('chamber-container');
+    if (hasChamber) {
+        chamberContainer.classList.remove('hidden');
+    } else {
+        chamberContainer.classList.add('hidden');
+        document.getElementById('use_heated_chamber').checked = false;
+    }
+
+    recalculate();
+}
+
+function onMaterialChange() {
+    const primarySelect = document.querySelector('.primary-mat');
+    if (!primarySelect) return;
+    
+    const selected = primarySelect.options[primarySelect.selectedIndex];
+    
+    if(selected && selected.value) {
+        const needsDryer = selected.getAttribute('data-needs-dryer') === 'true';
+        const mode = selected.getAttribute('data-dryer-mode');
+        const pre = selected.getAttribute('data-dryer-pre');
+        
+        const dryerSelect = document.getElementById('dryer_id');
+        const printerSelect = document.getElementById('printer_id');
+        const prefDryerId = printerSelect.options[printerSelect.selectedIndex]?.getAttribute('data-pref-dryer');
+
+        if (needsDryer) {
+            // If no dryer selected, try preferred or first available
+            if (dryerSelect.value === '') {
+                if (prefDryerId) {
+                    dryerSelect.value = prefDryerId;
+                } else if (dryerSelect.options.length > 1) {
+                    dryerSelect.selectedIndex = 1;
+                }
+            }
+        }
+
+        if (mode && mode !== 'none' && dryerSelect.value !== '') {
+            document.getElementById('dryer_mode').value = mode;
+            document.getElementById('dryer_pre_hours').value = pre || 0;
+        }
+
+        const needsChamber = selected.getAttribute('data-needs-chamber') === 'true';
+        const hasChamber = printerSelect.options[printerSelect.selectedIndex]?.getAttribute('data-has-chamber') === 'true';
+        
+        if (hasChamber) {
+            document.getElementById('use_heated_chamber').checked = needsChamber;
+        }
+    }
+    onDryerSelectionChange();
+}
+
+function addMaterialRow() {
+    const container = document.getElementById('materials-container');
+    const firstRow = container.querySelector('.material-row');
+    const clone = firstRow.cloneNode(true);
+    
+    // Clear values
+    clone.querySelector('.mat-select').value = '';
+    clone.querySelector('.mat-select').classList.remove('primary-mat'); // only first row is primary
+    clone.querySelector('.mat-weight').value = '';
+    
+    // Make remove button visible
+    clone.querySelector('.btn-danger').style.visibility = 'visible';
+    
+    // Bind select-on-focus to the new inputs
+    clone.querySelectorAll('input[type="number"], input[type="text"]').forEach(input => {
+        input.addEventListener('focus', function() {
+            this.select();
+        });
+    });
+
+    container.appendChild(clone);
+}
+
+function removeMaterialRow(btn) {
+    const row = btn.closest('.material-row');
+    if (row && document.querySelectorAll('.material-row').length > 1) {
+        row.remove();
+        debouncedRecalc();
+    }
+}
+
+function onDryerSelectionChange() {
+    const dryerSelect = document.getElementById('dryer_id');
+    const selected = dryerSelect.options[dryerSelect.selectedIndex];
+    const modeContainer = document.getElementById('dryer-mode-container');
+    const preContainer = document.getElementById('dryer-prehours-container');
+    const amsContainer = document.getElementById('dryer-ams-container');
+    const mode = document.getElementById('dryer_mode').value;
+    
+    if(selected && selected.value) {
+        modeContainer.classList.remove('hidden');
+        if (mode === 'pre_only' || mode === 'pre_and_during') {
+            preContainer.classList.remove('hidden');
+        } else {
+            preContainer.classList.add('hidden');
+        }
+
+        const hasAms = selected.getAttribute('data-has-ams') === 'true';
+        const amsCheckbox = document.getElementById('use_dryer_ams');
+        if (hasAms) {
+            amsContainer.classList.remove('hidden');
+            amsCheckbox.checked = true;
+            amsCheckbox.disabled = true;
+        } else {
+            amsContainer.classList.add('hidden');
+            amsCheckbox.checked = false;
+            amsCheckbox.disabled = false;
+        }
+    } else {
+        modeContainer.classList.add('hidden');
+        preContainer.classList.add('hidden');
+        amsContainer.classList.add('hidden');
+        const amsCheckbox = document.getElementById('use_dryer_ams');
+        amsCheckbox.checked = false;
+        amsCheckbox.disabled = false;
+    }
+    debouncedRecalc();
+}
+
+async function recalculate() {
+    const printerId = document.getElementById('printer_id').value;
+    let time = 0;
+    try {
+        time = parseTimeInput(document.getElementById('print_time_hours').value, 'hours');
+    } catch(e) {}
+
+    const materials = [];
+    document.querySelectorAll('.material-row').forEach(row => {
+        const matId = row.querySelector('.mat-select').value;
+        const weight = row.querySelector('.mat-weight').value;
+        if (matId && weight) {
+            materials.push({ material_id: parseInt(matId), filament_used_g: parseFloat(weight) });
+        }
+    });
+
+    if (!printerId || materials.length === 0 || time <= 0) return;
+
+    document.getElementById('calc-placeholder').classList.add('hidden');
+    document.getElementById('calc-display').classList.add('hidden');
+    document.getElementById('calc-loading').classList.remove('hidden');
+
+    try {
+        const payload = {
+            printer_id: parseInt(printerId),
+            materials: materials,
+            print_time_hours: time,
+            supports: document.getElementById('supports').checked,
+            postprocessing_minutes: Math.round(parseTimeInput(document.getElementById('postprocessing_minutes').value, 'minutes')),
+            customer_type: document.getElementById('customer_type').value,
+            other_costs: parseFloat(document.getElementById('other_costs').value) || 0,
+            use_heated_chamber: document.getElementById('use_heated_chamber').checked,
+        };
+        const dryerId = document.getElementById('dryer_id').value;
+        if (dryerId) {
+            payload.dryer_id = parseInt(dryerId);
+            payload.dryer_mode = document.getElementById('dryer_mode').value;
+            payload.dryer_pre_hours = parseTimeInput(document.getElementById('dryer_pre_hours').value, 'hours');
+            payload.use_dryer_ams = document.getElementById('use_dryer_ams').checked;
+        }
+
+        const data = await apiPost('/api/calculate', payload);
+
+        // Handle Warnings
+        const warnContainer = document.getElementById('warnings-container');
+        warnContainer.innerHTML = '';
+        if (data.warnings && data.warnings.length > 0) {
+            data.warnings.forEach(w => {
+                const div = document.createElement('div');
+                div.className = 'alert alert-warning';
+                div.style.padding = '0.5rem';
+                div.style.marginBottom = '0.5rem';
+                div.style.fontSize = '0.85rem';
+                div.innerHTML = `<svg class="icon" width="24" height="24" viewBox="0 0 24 24" style="margin-right:8px;"><use href="/static/icons/tabler-sprite.svg#tabler-alert-triangle"></use></svg> ` + w;
+                warnContainer.appendChild(div);
+            });
+            warnContainer.classList.remove('hidden');
+        } else {
+            warnContainer.classList.add('hidden');
+        }
+
+        document.getElementById('display-total').textContent = formatCurrency(data.total_price);
+        document.getElementById('display-profit').textContent = t('profit') + ': ' + formatCurrency(data.profit);
+        document.getElementById('display-material').textContent = formatCurrency(data.material_cost);
+        document.getElementById('display-electricity').textContent = formatCurrency(data.electricity_cost);
+        document.getElementById('display-depreciation').textContent = formatCurrency(data.depreciation_cost);
+        document.getElementById('display-maintenance').textContent = formatCurrency(data.maintenance_cost);
+        document.getElementById('display-labor').textContent = formatCurrency(data.labor_cost);
+        // Show other_costs row only when > 0
+        const otherRow = document.getElementById('row-other-costs');
+        if (data.other_costs > 0) {
+            otherRow.style.display = '';
+            document.getElementById('display-other-costs').textContent = formatCurrency(data.other_costs);
+        } else {
+            otherRow.style.display = 'none';
+        }
+        document.getElementById('display-subtotal').textContent = formatCurrency(data.subtotal);
+        document.getElementById('display-margin').textContent = formatNumber(data.profit_margin_percent, 1) + '%';
+
+        // Batch unit price
+        const isBatch = document.getElementById('is_batch').checked;
+        const batchQty = parseInt(document.getElementById('batch_quantity').value) || 1;
+        const batchCard = document.getElementById('batch-unit-card');
+        if (isBatch && batchQty >= 2) {
+            const unitPrice = data.total_price / batchQty;
+            document.getElementById('display-unit-price').textContent = formatCurrency(unitPrice);
+            document.getElementById('batch-unit-count').textContent = '(' + batchQty + ' ' + t('batch_objects_label') + ')';
+            batchCard.classList.remove('hidden');
+        } else {
+            batchCard.classList.add('hidden');
+        }
+
+        document.getElementById('calc-loading').classList.add('hidden');
+        document.getElementById('calc-display').classList.remove('hidden');
+    } catch (err) {
+        document.getElementById('calc-loading').classList.add('hidden');
+        document.getElementById('calc-placeholder').classList.remove('hidden');
+        showToast(t('error') + ': ' + err.message, 'error');
+    }
+}
+
+async function saveOrder() {
+    const printerId = document.getElementById('printer_id').value;
+    let time = 0;
+    try {
+        time = parseTimeInput(document.getElementById('print_time_hours').value, 'hours');
+    } catch(e) {}
+    
+    if (time <= 0) {
+        showToast(t('error') + ': ' + t('invalid_time_format'), 'error');
+        return;
+    }
+
+    const materials = [];
+    document.querySelectorAll('.material-row').forEach(row => {
+        const matId = row.querySelector('.mat-select').value;
+        const weight = row.querySelector('.mat-weight').value;
+        if (matId && weight) {
+            materials.push({ material_id: parseInt(matId), filament_used_g: parseFloat(weight) });
+        }
+    });
+
+    if (!printerId || materials.length === 0) {
+        showToast(t('fill_all_fields'), 'error');
+        return;
+    }
+
+    const hasSupports = document.getElementById('supports').checked;
+    let postVal = 0;
+    try { postVal = parseTimeInput(document.getElementById('postprocessing_minutes').value, 'minutes'); } catch(e) {}
+    if (hasSupports && postVal <= 0) {
+        showToast(t('supports_postprocessing_hint'), 'error');
+        document.getElementById('postprocessing_minutes').focus();
+        return;
+    }
+
+    const btn = document.getElementById('btn-save-order');
+    btn.disabled = true;
+    btn.textContent = t('loading');
+
+    try {
+        const payload = {
+            printer_id: parseInt(printerId),
+            materials: materials,
+            print_time_hours: time,
+            supports: document.getElementById('supports').checked,
+            postprocessing_minutes: Math.round(parseTimeInput(document.getElementById('postprocessing_minutes').value, 'minutes')),
+            customer_type: document.getElementById('customer_type').value,
+            customer_name: document.getElementById('customer_name').value.trim() || null,
+            other_costs: parseFloat(document.getElementById('other_costs').value) || 0,
+            notes: document.getElementById('notes').value.trim() || null,
+            use_heated_chamber: document.getElementById('use_heated_chamber').checked,
+            batch_quantity: document.getElementById('is_batch').checked
+                ? (parseInt(document.getElementById('batch_quantity').value) || 1)
+                : 1,
+        };
+        
+        const dryerId = document.getElementById('dryer_id').value;
+        if (dryerId) {
+            payload.dryer_id = parseInt(dryerId);
+            payload.dryer_mode = document.getElementById('dryer_mode').value;
+            payload.dryer_pre_hours = parseTimeInput(document.getElementById('dryer_pre_hours').value, 'hours');
+            payload.use_dryer_ams = document.getElementById('use_dryer_ams').checked;
+        }
+
+        const sellingPrice = document.getElementById('selling_price').value;
+        if (sellingPrice) payload.selling_price = parseFloat(sellingPrice);
+
+        await apiPost('/api/orders', payload);
+        showToast(t('order_saved_success'), 'success');
+
+        // Reset form
+        document.getElementById('calc-form').reset();
+        document.getElementById('calc-display').classList.add('hidden');
+        document.getElementById('calc-placeholder').classList.remove('hidden');
+    } catch (err) {
+        showToast(t('error') + ': ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-device-floppy"></use></svg> ` + t('save_order_btn');
+        translatePage();
+    }
+}
+
+const materialTypes = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'Nylon', 'PC', 'Andere'];
+
+function openQuickMaterial() {
+    document.getElementById('modal-title').textContent = t('new_material');
+    document.getElementById('modal-body').innerHTML = `
+        <div class="form-group">
+            <label for="qm-name" data-i18n="name"></label>
+            <input type="text" class="form-control" id="qm-name" data-i18n-placeholder="name_placeholder" placeholder="" maxlength="100" required>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="qm-type" data-i18n="type"></label>
+                <select class="form-control" id="qm-type">
+                    <option value="" data-i18n="select_type"></option>
+                    ${ALL_FILAMENT_TYPES.map(ft => `<option value="${ft.id}">${escapeHtml(ft.name)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="qm-price" data-i18n="price_per_kg"></label>
+                <input type="number" class="form-control" id="qm-price" step="0.01" min="0.01" data-i18n-placeholder="none" placeholder="" required>
+            </div>
+        </div>
+    `;
+    document.getElementById('modal-footer').innerHTML = `
+        <button class="btn btn-secondary" onclick="closeModal()" data-i18n="cancel"></button>
+        <button class="btn btn-primary" onclick="saveQuickMaterial()" data-i18n="save"></button>
+    `;
+    openModal();
+    translatePage();
+    setTimeout(() => document.getElementById('qm-name').focus(), 100);
+}
+
+async function saveQuickMaterial() {
+    const name = document.getElementById('qm-name').value.trim();
+    const price = parseFloat(document.getElementById('qm-price').value);
+
+    if (!name || !price) {
+        showToast(t('fill_all_fields'), 'error');
+        return;
+    }
+
+    try {
+        const result = await apiPost('/api/materials', {
+            name: name,
+            filament_type_id: parseInt(document.getElementById('qm-type').value) || null,
+            price_per_kg: price,
+            density_g_per_cm3: ALL_FILAMENT_TYPES.find(f => f.id == (parseInt(document.getElementById('qm-type').value) || 0))?.default_density || 1.24,
+        });
+
+        // Reload dropdown and select the new material in ALL selects
+        const ftName = ALL_FILAMENT_TYPES.find(f => f.id == result.filament_type_id)?.name || 'Unknown';
+        const optionHTML = `<option value="${result.id}" data-dryer-mode="${result.suggested_dryer_mode || 'none'}" data-dryer-pre="${result.suggested_dryer_pre_hours || 0}" data-needs-dryer="${result.needs_dryer ? 'true' : 'false'}">${result.name} (${ftName})</option>`;
+        document.querySelectorAll('.mat-select').forEach(select => {
+            select.insertAdjacentHTML('beforeend', optionHTML);
+        });
+
+        // Set in the first/primary select
+        const primarySelect = document.querySelector('.primary-mat');
+        if (primarySelect) {
+            primarySelect.value = result.id;
+        }
+
+        closeModal();
+        showToast(t('material_added_success').replace('{name}', result.name), 'success');
+        recalculate();
+    } catch (err) {
+        showToast(t('error') + ': ' + err.message, 'error');
+    }
+}
+
+// Ensure UI is correct on page load
+document.addEventListener('DOMContentLoaded', () => {
+    // Auto-select text in inputs on focus so default values are easily overwritten
+    document.querySelectorAll('input[type="number"], input[type="text"]').forEach(input => {
+        input.addEventListener('focus', function() {
+            this.select();
+        });
+    });
+
+    setTimeout(() => {
+        onPrinterChange();
+        onMaterialChange();
+        onDryerSelectionChange();
+    }, 100);
+});
+</script>
+{% endblock %}

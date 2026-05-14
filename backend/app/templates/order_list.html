@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% set active_page = "orders" %}
+
+{% block title %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 data-i18n="order_history"></h2>
+        <p class="subtitle" data-i18n="overview"></p>
+    </div>
+    <a href="/orders/new" class="btn btn-primary">
+        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+        <span data-i18n="new_order"></span>
+    </a>
+</div>
+
+<div class="card">
+    <div id="orders-loading" class="loading-overlay"><div class="spinner"></div> <span data-i18n="loading"></span></div>
+    <div id="orders-content" class="hidden">
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th data-i18n="date"></th>
+                        <th data-i18n="name"></th>
+                        <th data-i18n="type"></th>
+                        <th data-i18n="printers"></th>
+                        <th data-i18n="materials"></th>
+                        <th class="text-right" data-i18n="filament"></th>
+                        <th class="text-right" data-i18n="print_time_h"></th>
+                        <th class="text-right" data-i18n="total_price"></th>
+                        <th class="text-right" data-i18n="batch_unit_price_short"></th>
+                        <th class="text-right" data-i18n="profit"></th>
+                        <th class="text-center" data-i18n="actions"></th>
+                    </tr>
+                </thead>
+                <tbody id="orders-tbody"></tbody>
+            </table>
+        </div>
+        <div class="pagination" id="orders-pagination"></div>
+    </div>
+    <div id="orders-empty" class="hidden empty-state">
+        <div class="empty-icon"><svg class="icon" width="48" height="48" viewBox="0 0 24 24" style="opacity:0.3"><use href="/static/icons/tabler-sprite.svg#tabler-clipboard-off"></use></svg></div>
+        <p data-i18n="no_orders"></p>
+        <a href="/orders/new" class="btn btn-primary btn-sm">
+            <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+            <span data-i18n="new_order"></span>
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+const perPage = 20;
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await window.appReady;
+    loadOrders(1);
+});
+
+async function loadOrders(page) {
+    currentPage = page;
+    document.getElementById('orders-loading').classList.remove('hidden');
+    document.getElementById('orders-content').classList.add('hidden');
+    document.getElementById('orders-empty').classList.add('hidden');
+
+    try {
+        const data = await apiGet(`/api/orders?page=${page}&per_page=${perPage}`);
+
+        if (data.total === 0) {
+            document.getElementById('orders-loading').classList.add('hidden');
+            document.getElementById('orders-empty').classList.remove('hidden');
+            return;
+        }
+
+        const tbody = document.getElementById('orders-tbody');
+        tbody.innerHTML = data.items.map(o => {
+            let tierIcon = o.customer_type === 'business' ? 'briefcase' : o.customer_type === 'friends' ? 'users' : 'home';
+            let tierLabel = `<svg class="icon" width="24" height="24" viewBox="0 0 24 24" style="margin-right:4px;"><use href="/static/icons/tabler-sprite.svg#tabler-${tierIcon}"></use></svg> ` + t(o.customer_type);
+            const batchQty = o.batch_quantity || 1;
+            const isBatch = batchQty > 1;
+            const batchBadge = isBatch
+                ? `<span class="tag tag-info" style="font-size:0.7rem;padding:0.1rem 0.4rem;vertical-align:middle;" title="${t('batch_mode_label')}">${batchQty}&times;</span>`
+                : '';
+            const unitPriceCell = isBatch
+                ? `<div style="display:flex; align-items:center; justify-content:flex-end; gap:6px; width:100%;"><span style="flex-shrink:0;">${batchBadge}</span> <span class="font-mono text-gold">${formatCurrency(o.total_price / batchQty)}</span></div>`
+                : `<span class="text-muted">—</span>`;
+            return `
+            <tr>
+                <td data-label="${t('date')}">${formatDate(o.date)}</td>
+                <td data-label="${t('name')}">${o.customer_name ? escapeHtml(o.customer_name) : '<span class="text-muted">—</span>'}</td>
+                <td data-label="${t('type')}"><span class="tag ${o.customer_type === 'business' ? 'tag-success' : o.customer_type === 'friends' ? 'tag-info' : 'tag-neutral'}">${tierLabel}</span></td>
+                <td data-label="${t('printers')}">${escapeHtml(o.printer_name)}</td>
+                <td data-label="${t('materials')}">${escapeHtml(o.materials.map(m => m.material_name).join(', '))}</td>
+                <td data-label="${t('filament')}" class="text-right font-mono">${formatNumber(o.materials.reduce((sum, m) => sum + m.filament_used_g, 0), 0)}g</td>
+                <td data-label="${t('print_time_h')}" class="text-right font-mono">${formatDuration(o.print_time_hours, 'hours', true)}</td>
+                <td data-label="${t('total_price')}" class="text-right font-mono"><span class="text-gold">${formatCurrency(o.total_price)}</span></td>
+                <td data-label="${t('batch_unit_price_short')}" class="text-right">${unitPriceCell}</td>
+                <td data-label="${t('profit')}" class="text-right font-mono"><span class="${o.profit >= 0 ? 'text-success' : 'text-danger'}">${formatCurrency(o.profit)}</span></td>
+                <td data-label="${t('actions')}" class="text-center actions-cell">
+                    <button class="btn btn-danger btn-sm btn-icon" onclick="confirmDeleteOrder(${o.id})" data-i18n-title="delete" title="">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-trash"></use></svg>
+                    </button>
+                </td>
+            </tr>
+            `;
+        }).join('');
+
+        // Pagination
+        const paginationEl = document.getElementById('orders-pagination');
+        if (data.pages > 1) {
+            let html = '';
+            for (let i = 1; i <= data.pages; i++) {
+                html += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="loadOrders(${i})">${i}</button>`;
+            }
+            paginationEl.innerHTML = html;
+        } else {
+            paginationEl.innerHTML = '';
+        }
+
+        document.getElementById('orders-loading').classList.add('hidden');
+        document.getElementById('orders-content').classList.remove('hidden');
+        translatePage();
+    } catch (err) {
+        console.error('Order load error:', err);
+        showToast(t('error') + ': ' + err.message, 'error');
+    }
+}
+
+function confirmDeleteOrder(orderId) {
+    openConfirmModal(
+        t('delete'),
+        t('delete_confirm'),
+        async () => {
+            await apiDelete(`/api/orders/${orderId}`);
+            showToast(t('success'), 'success');
+            loadOrders(currentPage);
+        }
+    );
+}
+</script>
+{% endblock %}

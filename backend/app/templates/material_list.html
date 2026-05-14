@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+{% set active_page = "materials" %}
+
+{% block title %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 data-i18n="materials"></h2>
+        <p class="subtitle" data-i18n="management"></p>
+    </div>
+    <div style="display: flex; gap: 10px;">
+        <button class="btn btn-secondary" onclick="openFilamentTypeModal()">
+            <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-settings"></use></svg>
+            <span data-i18n="manage_types"></span>
+        </button>
+        <button class="btn btn-primary" onclick="openMaterialModal()" id="btn-add-material">
+            <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+            <span data-i18n="add_material"></span>
+        </button>
+    </div>
+</div>
+
+<div id="materials-loading" class="loading-overlay"><div class="spinner"></div> <span data-i18n="loading"></span></div>
+<div class="item-grid" id="materials-grid"></div>
+<div id="materials-empty" class="hidden empty-state">
+    <div class="empty-icon"><svg class="icon" width="48" height="48" viewBox="0 0 24 24" style="opacity:0.3"><use href="/static/icons/tabler-sprite.svg#tabler-vinyl"></use></svg></div>
+    <p data-i18n="no_data"></p>
+    <button class="btn btn-primary btn-sm" onclick="openMaterialModal()">
+        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+        <span data-i18n="add_material"></span>
+    </button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script id="filament-types-data" type="application/json">
+    {{ filament_types | tojson | safe }}
+</script>
+
+<script>
+const ALL_FILAMENT_TYPES = JSON.parse(document.getElementById('filament-types-data').textContent);
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadMaterials();
+});
+
+async function loadMaterials() {
+    document.getElementById('materials-loading').classList.remove('hidden');
+    document.getElementById('materials-grid').innerHTML = '';
+    document.getElementById('materials-empty').classList.add('hidden');
+
+    try {
+        const materials = await apiGet('/api/materials');
+        document.getElementById('materials-loading').classList.add('hidden');
+
+        if (materials.length === 0) {
+            document.getElementById('materials-empty').classList.remove('hidden');
+            return;
+        }
+
+        document.getElementById('materials-grid').innerHTML = materials.map(m => `
+            <div class="card item-card">
+                <div class="item-name"><svg class="icon" width="24" height="24" viewBox="0 0 24 24" style="margin-right:8px;"><use href="/static/icons/tabler-sprite.svg#tabler-vinyl"></use></svg> ${escapeHtml(m.name)}</div>
+                <div class="item-detail"><span class="label" data-i18n="type"></span><span class="detail-value">${escapeHtml(m.filament_type_name || '-')}</span></div>
+                <div class="item-detail"><span class="label" data-i18n="price_per_kg"></span><span class="detail-value text-accent">${formatCurrency(m.price_per_kg)}</span></div>
+                <div class="item-detail"><span class="label" data-i18n="density"></span><span class="detail-value">${m.density_g_per_cm3} g/cm³</span></div>
+                <div class="item-actions">
+                    <button class="btn btn-secondary btn-sm" data-i18n-title="edit" title="" onclick='openMaterialModal(${JSON.stringify(m)})'>
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-pencil"></use></svg>
+                        <span data-i18n="edit"></span>
+                    </button>
+                    <button class="btn btn-danger btn-sm" data-i18n-title="delete" title="" onclick="confirmDeleteMaterial(${m.id}, '${escapeHtml(m.name)}')">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-trash"></use></svg>
+                        <span data-i18n="delete"></span>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+        translatePage();
+    } catch (err) {
+        console.error('Material load error:', err);
+        showToast(t('error') + ': ' + err.message, 'error');
+    }
+}
+
+async function openMaterialModal(material = null) {
+    const isEdit = material !== null;
+    const title = isEdit ? t('material_edit') : t('material_new');
+
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = `
+        <div class="form-group">
+            <label for="m-mat-name" data-i18n="name"></label>
+            <input type="text" class="form-control" id="m-mat-name" data-i18n-placeholder="name_placeholder" placeholder="" value="${isEdit ? escapeHtml(material.name) : ''}" required>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="m-mat-type" data-i18n="type"></label>
+                <select class="form-control" id="m-mat-type" onchange="onMaterialTypeChange()">
+                    <option value="" data-i18n="select_type"></option>
+                    ${ALL_FILAMENT_TYPES.map(ft => `<option value="${ft.id}" ${isEdit && material.filament_type_id === ft.id ? 'selected' : ''}>${escapeHtml(ft.name)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="m-mat-price" data-i18n="price_per_kg"></label>
+                <input type="number" class="form-control" id="m-mat-price" step="0.01" min="0.01" value="${isEdit ? material.price_per_kg : ''}" required>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="m-mat-density" data-i18n="density"></label>
+                <input type="number" class="form-control" id="m-mat-density" step="0.01" min="0.1" value="${isEdit ? material.density_g_per_cm3 : '1.24'}" required>
+            </div>
+        </div>
+    `;
+
+    document.getElementById('modal-footer').innerHTML = `
+        <button class="btn btn-secondary" onclick="closeModal()" data-i18n="cancel"></button>
+        <button class="btn btn-primary" onclick="saveMaterial(${isEdit ? material.id : 'null'})" data-i18n="save"></button>
+    `;
+
+    openModal();
+    translatePage();
+}
+
+function onMaterialTypeChange() {
+    const typeId = parseInt(document.getElementById('m-mat-type').value);
+    if (!typeId) return;
+    
+    const ft = ALL_FILAMENT_TYPES.find(t => t.id === typeId);
+    if (ft && ft.default_density) {
+        document.getElementById('m-mat-density').value = ft.default_density;
+    }
+}
+
+async function saveMaterial(id) {
+    const data = {
+        name: document.getElementById('m-mat-name').value,
+        filament_type_id: document.getElementById('m-mat-type').value ? parseInt(document.getElementById('m-mat-type').value) : null,
+        price_per_kg: parseFloat(document.getElementById('m-mat-price').value),
+        density_g_per_cm3: parseFloat(document.getElementById('m-mat-density').value),
+    };
+
+    if (!data.name || !data.price_per_kg || isNaN(data.density_g_per_cm3)) {
+        showToast(t('fill_all_fields'), 'error');
+        return;
+    }
+
+    try {
+        if (id) {
+            await apiPut(`/api/materials/${id}`, data);
+            showToast(t('material_updated'), 'success');
+        } else {
+            await apiPost('/api/materials', data);
+            showToast(t('material_created'), 'success');
+        }
+        closeModal();
+        loadMaterials();
+        showToast(t('success'), 'success');
+    } catch (err) {
+        showToast(t('error') + ': ' + err.message, 'error');
+    }
+}
+
+function confirmDeleteMaterial(id, name) {
+    openConfirmModal(
+        t('delete'),
+        `"${name}" ${t('delete_confirm')}`,
+        async () => {
+            await apiDelete(`/api/materials/${id}`);
+            showToast(t('success'), 'success');
+            loadMaterials();
+        }
+    );
+}
+
+// ─── Filament Type Management ─────────────────────────────────────
+
+async function openFilamentTypeModal() {
+    document.getElementById('modal-title').textContent = t('manage_types');
+    
+    let types = [];
+    try {
+        types = await apiGet('/api/filament-types');
+    } catch (e) {
+        showToast(t('error_loading_types'), 'error');
+    }
+
+    const rows = types.map(ft => `
+        <div class="modal-list-item">
+            <div class="item-info">
+                <div class="item-primary">${escapeHtml(ft.name)}</div>
+                <div class="item-secondary">
+                    <span data-i18n="nozzle"></span>: ${ft.min_nozzle_temp}-${ft.max_nozzle_temp}°C | 
+                    <span data-i18n="heatbed"></span>: ${ft.min_bed_temp}°C
+                </div>
+            </div>
+            <div class="item-actions">
+                <button class="btn btn-secondary btn-sm btn-icon" onclick="editFilamentType(${JSON.stringify(ft).replace(/"/g, '&quot;')})" data-i18n-title="edit" title="">
+                    <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-pencil"></use></svg>
+                </button>
+                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteFilamentType(${ft.id})" data-i18n-title="delete" title="">
+                    <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-trash"></use></svg>
+                </button>
+            </div>
+        </div>
+    `).join('');
+
+    document.getElementById('modal-body').innerHTML = `
+        <div class="modal-list-header">
+            <button class="btn btn-primary btn-sm" onclick="editFilamentType()">
+                <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+                <span data-i18n="add_type"></span>
+            </button>
+        </div>
+        <div class="modal-list">
+            ${rows || `<div class="empty-state" data-i18n="no_data"></div>`}
+        </div>
+    `;
+
+    document.getElementById('modal-footer').innerHTML = `
+        <button class="btn btn-secondary" onclick="closeModal()">
+            <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-x"></use></svg>
+            <span data-i18n="close"></span>
+        </button>
+    `;
+
+    openModal();
+    translatePage();
+}
+
+function editFilamentType(ft = null) {
+    const isEdit = ft !== null;
+    const title = isEdit ? t('edit_type') : t('add_type');
+    
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = `
+        <div class="form-group">
+            <label data-i18n="name"></label>
+            <input type="text" class="form-control" id="ft-name" value="${isEdit ? escapeHtml(ft.name) : ''}" data-i18n-placeholder="none" placeholder="">
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label data-i18n="min_nozzle_temp"></label>
+                <input type="number" class="form-control" id="ft-min-nozzle" value="${isEdit ? ft.min_nozzle_temp : '190'}">
+            </div>
+            <div class="form-group">
+                <label data-i18n="max_nozzle_temp"></label>
+                <input type="number" class="form-control" id="ft-max-nozzle" value="${isEdit ? ft.max_nozzle_temp : '220'}">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label data-i18n="min_bed_temp"></label>
+                <input type="number" class="form-control" id="ft-min-bed" value="${isEdit ? ft.min_bed_temp : '60'}">
+            </div>
+            <div class="form-group">
+                <label data-i18n="min_chamber_temp"></label>
+                <input type="number" class="form-control" id="ft-min-chamber" value="${isEdit ? ft.chamber_temp_min : '0'}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-switch">
+                <span class="switch">
+                    <input type="checkbox" id="ft-needs-chamber" ${isEdit && ft.needs_chamber ? 'checked' : ''}>
+                    <span class="slider"></span>
+                </span>
+                <span data-i18n="needs_chamber"></span>
+            </label>
+        </div>
+        <hr style="margin: 15px 0; border: none; border-top: 1px solid var(--border-subtle);">
+        <div class="form-group">
+            <label class="form-switch">
+                <span class="switch">
+                    <input type="checkbox" id="ft-needs-dryer" ${isEdit && ft.needs_dryer ? 'checked' : ''}>
+                    <span class="slider"></span>
+                </span>
+                <span data-i18n="needs_dryer"></span>
+            </label>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label data-i18n="dryer_temp"></label>
+                <input type="number" class="form-control" id="ft-dryer-temp" value="${isEdit ? ft.dryer_temp : '50'}">
+            </div>
+            <div class="form-group">
+                <label data-i18n="dryer_hours"></label>
+                <input type="text" class="form-control" id="m-ft-dryer-hours" data-i18n-placeholder="time_hint">
+                <small class="input-hint" data-i18n="time_hint"></small>
+            </div>
+        </div>
+        <div class="form-group">
+            <label data-i18n="dryer_mode_default"></label>
+            <select class="form-control" id="ft-dryer-mode">
+                <option value="none" ${isEdit && ft.dryer_mode_default === 'none' ? 'selected' : ''} data-i18n="none"></option>
+                <option value="pre_only" ${isEdit && ft.dryer_mode_default === 'pre_only' ? 'selected' : ''} data-i18n="pre_dry"></option>
+                <option value="during_only" ${isEdit && ft.dryer_mode_default === 'during_only' ? 'selected' : ''} data-i18n="during_dry"></option>
+                <option value="pre_and_during" ${isEdit && ft.dryer_mode_default === 'pre_and_during' ? 'selected' : ''} data-i18n="both_dry"></option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label data-i18n="default_density"></label>
+            <input type="number" class="form-control" id="ft-density" value="${isEdit ? ft.default_density : '1.24'}" step="0.01">
+        </div>
+    `;
+
+    document.getElementById('modal-footer').innerHTML = `
+        <button class="btn btn-secondary" onclick="openFilamentTypeModal()">
+            <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-arrow-left"></use></svg>
+            <span data-i18n="back"></span>
+        </button>
+        <button class="btn btn-primary" onclick="saveFilamentType(${isEdit ? ft.id : 'null'})">
+            <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-device-floppy"></use></svg>
+            <span data-i18n="save"></span>
+        </button>
+    `;
+
+    // Reset/Setup previews after modal content is injected
+    setTimeout(() => {
+        document.getElementById('m-ft-dryer-hours').value = isEdit ? ft.dryer_hours : 4;
+    }, 100);
+    
+    translatePage();
+}
+
+async function saveFilamentType(id) {
+    const data = {
+        name: document.getElementById('ft-name').value,
+        min_nozzle_temp: parseInt(document.getElementById('ft-min-nozzle').value),
+        max_nozzle_temp: parseInt(document.getElementById('ft-max-nozzle').value),
+        min_bed_temp: parseInt(document.getElementById('ft-min-bed').value),
+        chamber_temp_min: parseInt(document.getElementById('ft-min-chamber').value),
+        needs_chamber: document.getElementById('ft-needs-chamber').checked,
+        needs_dryer: document.getElementById('ft-needs-dryer').checked,
+        dryer_temp: parseInt(document.getElementById('ft-dryer-temp').value),
+        dryer_hours: parseTimeInput(document.getElementById('m-ft-dryer-hours').value, 'hours'),
+        dryer_mode_default: document.getElementById('ft-dryer-mode').value,
+        default_density: parseFloat(document.getElementById('ft-density').value),
+    };
+
+    if (!data.name) {
+        showToast(t('fill_all_fields'), 'error');
+        return;
+    }
+
+    try {
+        if (id) {
+            await apiPut(`/api/filament-types/${id}`, data);
+        } else {
+            await apiPost('/api/filament-types/', data);
+        }
+        showToast(t('type_saved'), 'success');
+        openFilamentTypeModal(); // Back to list
+        // We should also reload the main page to update dropdowns, but it's okay for now
+        setTimeout(() => location.reload(), 1000); 
+    } catch (e) {
+        showToast(t('error') + ': ' + e.message, 'error');
+    }
+}
+
+async function deleteFilamentType(id) {
+    if (!confirm(t('delete_confirm'))) return;
+    try {
+        await apiDelete(`/api/filament-types/${id}`);
+        showToast(t('success'), 'success');
+        openFilamentTypeModal();
+        setTimeout(() => location.reload(), 1000);
+    } catch (e) {
+        showToast(t('error') + ': ' + e.message, 'error');
+    }
+}
+
+</script>
+{% endblock %}

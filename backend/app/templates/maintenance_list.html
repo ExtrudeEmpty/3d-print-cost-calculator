@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% set active_page = "maintenance" %}
+
+{% block title %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 data-i18n="maintenance"></h2>
+        <p class="subtitle" data-i18n="maintenance_history"></p>
+    </div>
+    <button class="btn btn-primary" onclick="openMaintenanceModal()" id="btn-add-maintenance">
+        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+        <span data-i18n="maintenance_entry"></span>
+    </button>
+</div>
+
+<div class="card">
+    <div id="maint-loading" class="loading-overlay"><div class="spinner"></div> <span data-i18n="loading"></span></div>
+    <div id="maint-content" class="hidden">
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th data-i18n="date"></th>
+                        <th data-i18n="printers"></th>
+                        <th data-i18n="maintenance_part"></th>
+                        <th class="text-right" data-i18n="maintenance_cost"></th>
+                        <th class="text-right" data-i18n="labor_cost"></th>
+                        <th class="text-right" style="font-weight: 700;" data-i18n="total"></th>
+                        <th data-i18n="notes"></th>
+                        <th class="text-center" data-i18n="actions"></th>
+                    </tr>
+                </thead>
+                <tbody id="maint-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+    <div id="maint-empty" class="hidden empty-state">
+        <div class="empty-icon"><svg class="icon" width="48" height="48" viewBox="0 0 24 24" style="opacity:0.3"><use href="/static/icons/tabler-sprite.svg#tabler-tools-off"></use></svg></div>
+        <p data-i18n="maintenance_none"></p>
+        <button class="btn btn-primary btn-sm" onclick="openMaintenanceModal()">
+            <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+            <span data-i18n="maintenance_entry"></span>
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script id="printers-data" type="application/json">
+    {{ printers | tojson | safe }}
+</script>
+
+<script>
+const printersList = JSON.parse(document.getElementById('printers-data').textContent);
+const partTypes = ['nozzle', 'heatbed', 'part_belt', 'part_extruder', 'part_fan', 'part_board', 'part_screen', 'part_other'];
+let APP_SETTINGS = null;
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await window.appReady;
+    try {
+        APP_SETTINGS = await apiGet('/api/settings');
+    } catch (e) { console.error('Failed to load settings', e); }
+    loadMaintenance();
+});
+
+function updateMaintPreview() {
+    if (!APP_SETTINGS) return;
+    
+    const partCost = parseFloat(document.getElementById('m-maint-cost').value) || 0;
+    let laborHours = 0;
+    try {
+        laborHours = parseTimeInput(document.getElementById('m-maint-labor-min').value, 'hours');
+    } catch(e) {}
+    const rateType = document.getElementById('m-maint-rate-type').value;
+    let factor = 1.0;
+    if (rateType === 'friends') factor = APP_SETTINGS.labor_factor_friends;
+    else if (rateType === 'private') factor = APP_SETTINGS.labor_factor_private;
+    
+    const laborCost = laborHours * APP_SETTINGS.hourly_labor_rate * factor;
+    const total = partCost + laborCost;
+    
+    document.getElementById('maint-preview-total').textContent = formatCurrency(total);
+}
+
+async function loadMaintenance() {
+    document.getElementById('maint-loading').classList.remove('hidden');
+    document.getElementById('maint-content').classList.add('hidden');
+    document.getElementById('maint-empty').classList.add('hidden');
+
+    try {
+        const records = await apiGet('/api/maintenance');
+        document.getElementById('maint-loading').classList.add('hidden');
+
+        if (records.length === 0) {
+            document.getElementById('maint-empty').classList.remove('hidden');
+            return;
+        }
+
+        document.getElementById('maint-tbody').innerHTML = records.map(r => `
+            <tr>
+                <td data-label="${t('date')}">${formatDate(r.date)}</td>
+                <td data-label="${t('printers')}">${escapeHtml(r.printer_name)}</td>
+                <td data-label="${t('maintenance_part')}"><span class="tag tag-neutral">${escapeHtml(t(r.part_type))}</span></td>
+                <td data-label="${t('maintenance_cost')}" class="text-right font-mono">${formatCurrency(r.cost)}</td>
+                <td data-label="${t('labor_cost')}" class="text-right font-mono" title="${r.labor_hours}h @ ${r.hourly_rate_type}">${formatCurrency(r.total_cost - r.cost)}</td>
+                <td data-label="${t('total')}" class="text-right font-mono text-gold" style="font-weight: 700;">${formatCurrency(r.total_cost)}</td>
+                <td data-label="${t('notes')}">${r.notes ? escapeHtml(r.notes) : '<span class="text-muted">—</span>'}</td>
+                <td data-label="${t('actions')}" class="text-center actions-cell">
+                    <button class="btn btn-danger btn-sm btn-icon" onclick="confirmDeleteMaint(${r.id})" data-i18n-title="delete" title="">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-trash"></use></svg>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+
+        document.getElementById('maint-content').classList.remove('hidden');
+        translatePage();
+    } catch (err) {
+        showToast(t('error') + ': ' + err.message, 'error');
+    }
+}
+
+function openMaintenanceModal() {
+    document.getElementById('modal-title').textContent = t('new_maintenance');
+    document.getElementById('modal-body').innerHTML = `
+        <div class="form-group">
+            <label for="m-maint-printer" data-i18n="printers"></label>
+            <select class="form-control" id="m-maint-printer" required>
+                <option value="" data-i18n="printer_select"></option>
+                ${printersList.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="m-maint-date" data-i18n="date"></label>
+                <input type="date" class="form-control" id="m-maint-date" value="${new Date().toISOString().split('T')[0]}">
+            </div>
+            <div class="form-group">
+                <label for="m-maint-part" data-i18n="maintenance_part"></label>
+                <select class="form-control" id="m-maint-part" required>
+                    ${partTypes.map(t => `<option value="${t}">${escapeHtml(window.t ? window.t(t) : t)}</option>`).join('')}
+                </select>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="m-maint-cost" data-i18n="maintenance_cost"></label>
+                <input type="number" class="form-control" id="m-maint-cost" step="0.01" min="0" value="0" required oninput="updateMaintPreview()">
+            </div>
+            <div class="form-group">
+                <label data-i18n="maintenance_labor_min"></label>
+                <input type="text" class="form-control" id="m-maint-labor-min" data-i18n-placeholder="time_hint" value="0" oninput="updateMaintPreview()">
+            </div>
+        </div>
+        <div class="form-group">
+            <label data-i18n="maintenance_rate_type"></label>
+            <select class="form-control" id="m-maint-rate-type" onchange="updateMaintPreview()">
+                <option value="private" data-i18n="private"></option>
+                <option value="friends" data-i18n="friends"></option>
+                <option value="business" data-i18n="business"></option>
+            </select>
+        </div>
+        <div id="maint-preview" class="alert alert-info" style="padding: 10px; margin-bottom: 15px; font-size: 0.9rem;">
+             <span data-i18n="maintenance_preview_total"></span>: <strong id="maint-preview-total">0,00 €</strong>
+        </div>
+        <div class="form-group">
+            <label for="m-maint-notes" data-i18n="notes"></label>
+            <textarea class="form-control" id="m-maint-notes" rows="2" data-i18n-placeholder="maintenance_notes_placeholder" placeholder=""></textarea>
+        </div>
+    `;
+
+    document.getElementById('modal-footer').innerHTML = `
+        <button class="btn btn-secondary" onclick="closeModal()">
+            <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-x"></use></svg>
+            <span data-i18n="cancel"></span>
+        </button>
+        <button class="btn btn-primary" onclick="saveMaintenance()">
+            <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-device-floppy"></use></svg>
+            <span data-i18n="save"></span>
+        </button>
+    `;
+
+    openModal();
+    translatePage();
+}
+
+async function saveMaintenance() {
+    const data = {
+        printer_id: parseInt(document.getElementById('m-maint-printer').value),
+        date: document.getElementById('m-maint-date').value || null,
+        part_type: document.getElementById('m-maint-part').value,
+        cost: parseFloat(document.getElementById('m-maint-cost').value) || 0,
+        labor_hours: parseTimeInput(document.getElementById('m-maint-labor-min').value, 'hours'),
+        hourly_rate_type: document.getElementById('m-maint-rate-type').value,
+    };
+
+    const notes = document.getElementById('m-maint-notes').value.trim();
+    if (notes) data.notes = notes;
+
+    if (!data.printer_id || !data.part_type) {
+        showToast(t('fill_all_fields'), 'error');
+        return;
+    }
+
+    try {
+        await apiPost('/api/maintenance', data);
+        showToast(t('order_saved_success'), 'success');
+        closeModal();
+        loadMaintenance();
+    } catch (err) {
+        showToast(t('error') + ': ' + err.message, 'error');
+    }
+}
+
+function confirmDeleteMaint(id) {
+    openConfirmModal(
+        t('delete'),
+        t('delete_entry_confirm'),
+        async () => {
+            await apiDelete(`/api/maintenance/${id}`);
+            showToast(t('success'), 'success');
+            loadMaintenance();
+        }
+    );
+}
+</script>
+{% endblock %}

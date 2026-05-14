@@ -1,0 +1,495 @@
+{% extends "base.html" %}
+{% set active_page = "printers" %}
+
+{% block title %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 data-i18n="printers"></h2>
+        <p class="subtitle" data-i18n="overview"></p>
+    </div>
+    <button class="btn btn-primary" onclick="openPrinterModal()" id="btn-add-printer">
+        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+        <span data-i18n="add_printer"></span>
+    </button>
+</div>
+
+<div id="printers-loading" class="loading-overlay"><div class="spinner"></div> <span data-i18n="loading"></span></div>
+<div class="item-grid" id="printers-grid"></div>
+<div id="printers-empty" class="hidden empty-state">
+    <div class="empty-icon"><svg class="icon" width="48" height="48" viewBox="0 0 24 24" style="opacity:0.3"><use href="/static/icons/tabler-sprite.svg#tabler-printer-off"></use></svg></div>
+    <p data-i18n="no_printers"></p>
+    <button class="btn btn-primary btn-sm" onclick="openPrinterModal()">
+        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+        <span data-i18n="add_printer"></span>
+    </button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script id="filament-types-data" type="application/json">
+    {{ filament_types | default([]) | tojson | safe }}
+</script>
+<script id="dryers-data" type="application/json">
+    {{ dryers | default([]) | tojson | safe }}
+</script>
+
+<script>
+let ALL_FILAMENT_TYPES = [];
+let ALL_DRYERS = [];
+let ALL_PRINTER_PRESETS = [];
+
+document.addEventListener('DOMContentLoaded', async () => {
+    ALL_FILAMENT_TYPES = JSON.parse(document.getElementById('filament-types-data').textContent);
+    ALL_DRYERS = JSON.parse(document.getElementById('dryers-data').textContent);
+    
+    // Load presets
+    try {
+        const res = await fetch('/static/js/printer_presets.json');
+        if (res.ok) ALL_PRINTER_PRESETS = await res.json();
+    } catch(e) { console.error("Failed to load presets", e); }
+    
+    loadPrinters();
+});
+
+async function loadPrinters() {
+    document.getElementById('printers-loading').classList.remove('hidden');
+    document.getElementById('printers-grid').innerHTML = '';
+    document.getElementById('printers-empty').classList.add('hidden');
+
+    try {
+        const printers = await apiGet('/api/printers');
+        document.getElementById('printers-loading').classList.add('hidden');
+
+        if (printers.length === 0) {
+            document.getElementById('printers-empty').classList.remove('hidden');
+            return;
+        }
+
+        document.getElementById('printers-grid').innerHTML = printers.map(p => `
+            <div class="card item-card">
+                <div class="item-card-header">
+                    <div class="item-name">${escapeHtml(p.name)}</div>
+                    <button class="btn btn-icon btn-secondary btn-sm" onclick='openPrinterModal(${JSON.stringify(p)})' title="${t('edit')}">
+                        <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-settings"></use></svg>
+                    </button>
+                </div>
+                <div class="item-detail">
+                    <span class="label" data-i18n="purchase_price"></span>
+                    <span class="detail-value heavy">${formatCurrency(p.purchase_price)}</span>
+                </div>
+                <div class="item-detail">
+                    <span class="label" data-i18n="purchase_date"></span>
+                    <span class="detail-value">${formatDate(p.purchase_date)}</span>
+                </div>
+                <div class="item-detail">
+                    <span class="label" data-i18n="max_wattage"></span>
+                    <span class="detail-value">${p.max_wattage}W</span>
+                </div>
+                <div class="item-detail">
+                    <span class="label" data-i18n="heated_bed"></span>
+                    <span class="detail-value">
+                        ${p.has_heated_bed ? `${p.max_wattage_bed}W` : '--'}
+                    </span>
+                </div>
+                <div class="item-detail">
+                    <span class="label" data-i18n="heated_chamber"></span>
+                    <span class="detail-value">
+                        ${p.has_heated_chamber ? `${p.chamber_wattage}W` : '--'}
+                    </span>
+                </div>
+                <div class="item-detail">
+                    <span class="label" data-i18n="preferred_dryer"></span>
+                    <span class="detail-value">
+                        ${(() => {
+                            const dryer = ALL_DRYERS.find(d => d.id === p.preferred_dryer_id);
+                            return dryer ? escapeHtml(dryer.name) : '--';
+                        })()}
+                    </span>
+                </div>
+                <div class="item-detail">
+                    <span class="label" data-i18n="lifetime"></span>
+                    <span class="detail-value">${formatDuration(p.expected_lifetime_hours, 'hours')}</span>
+                </div>
+                <div class="item-detail">
+                    <span class="label" data-i18n="depreciation_per_h"></span>
+                    <span class="detail-value accent-text">${formatCurrency(p.purchase_price / p.expected_lifetime_hours)}</span>
+                </div>
+            </div>
+        `).join('');
+        translatePage();
+    } catch (err) {
+        console.error('Printer load error:', err);
+        showToast(t('error') + ': ' + err.message, 'error');
+    }
+}
+
+function clonePrinter(p) {
+    const clone = {...p};
+    delete clone.id;
+    clone.name = clone.name + ' (' + t('copy') + ')';
+    openPrinterModal(clone, false);
+}
+
+async function openPrinterModal(printer = null, isEdit = null) {
+    if (isEdit === null) isEdit = (printer !== null && printer.id !== undefined);
+    const title = isEdit ? t('printer_edit') : t('printer_new');
+    
+    // Reset previews after modal content is injected
+    setTimeout(() => {
+        // No special init needed for simple text fields
+    }, 100);
+    
+    let calibsHtml = '';
+    
+    if (isEdit) {
+        document.getElementById('printers-loading').classList.remove('hidden');
+        try {
+            const calibs = await apiGet(`/api/printers/${printer.id}/calibrations`);
+            
+            const calibRows = calibs.length === 0 ? `<tr><td colspan="3" class="text-muted" data-i18n="calibration_none"></td></tr>` : calibs.map(c => `
+                <tr>
+                    <td data-label="${t('filament_type')}">${escapeHtml(c.filament_type_name)}</td>
+                    <td data-label="${t('power_factor')}" class="text-right font-mono">${formatNumber(c.power_factor, 3)}</td>
+                    <td><button class="btn btn-danger btn-sm" onclick="deletePrinterCalib(${printer.id}, ${c.filament_type_id})">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-trash"></use></svg>
+                    </button></td>
+                </tr>
+            `).join('');
+
+            calibsHtml = `
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid var(--border-color);">
+            <h4 style="margin-bottom: 10px;" data-i18n="calibration_title_filament"></h4>
+            <table class="table" style="font-size: 0.9em; margin-bottom: 15px;">
+                <thead><tr><th data-i18n="filament_type"></th><th data-i18n="power_factor"></th><th style="width: 50px;"></th></tr></thead>
+                <tbody>${calibRows}</tbody>
+            </table>
+            
+            <div class="card" style="background: var(--bg-body); padding: 10px; margin-bottom: 10px;">
+                <p style="margin-top: 0; font-size: 0.9em; font-weight: bold;" data-i18n="new_measurement"></p>
+                <div class="form-row" style="margin-bottom: 5px;">
+                    <select id="nc-filament-type" class="form-control form-control-sm">
+                        ${ALL_FILAMENT_TYPES.map(ft => `<option value="${ft.id}">${escapeHtml(ft.name)}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-row" style="margin-bottom: 5px;">
+                    <div style="flex: 1;">
+                        <input type="text" id="nc-duration" class="form-control form-control-sm" data-i18n-placeholder="time_hint" placeholder="">
+                    </div>
+                    <div style="flex: 1;">
+                        <input type="number" id="nc-kwh" class="form-control form-control-sm" data-i18n-placeholder="measured_kwh" placeholder="">
+                    </div>
+                </div>
+                <button class="btn btn-secondary btn-sm" style="width: 100%; margin-top: 5px;" onclick="addPrinterCalib(${printer.id}, ${printer.max_wattage})" data-i18n="calc_and_save"></button>
+            </div>
+            `;
+        } catch (e) {
+            showToast(t('error_calib_load'), 'error');
+        }
+        document.getElementById('printers-loading').classList.add('hidden');
+    }
+
+    document.getElementById('modal-title').textContent = title;
+    
+    let modalBody = '';
+    
+    // Add presets for new printers
+    if (!isEdit) {
+        modalBody += `
+            <div class="form-group" style="background: var(--bg-subtle); padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle); margin-bottom: 15px;">
+                <label for="m-printer-preset" style="font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <svg class="icon" width="20" height="20" viewBox="0 0 24 24" style="color: var(--accent-color);"><use href="/static/icons/tabler-sprite.svg#tabler-template"></use></svg>
+                    <span data-i18n="presets"></span>
+                </label>
+                <select id="m-printer-preset" class="form-control" onchange="applyPreset(this.value)">
+                    <option value="" data-i18n="select_preset"></option>
+                    ${(() => {
+                        const groups = {};
+                        ALL_PRINTER_PRESETS.forEach((p, i) => {
+                            if (!groups[p.brand]) groups[p.brand] = [];
+                            groups[p.brand].push({ p, i });
+                        });
+                        return Object.keys(groups).map(brand => `
+                            <optgroup label="${escapeHtml(brand)}">
+                                ${groups[brand].map(item => `<option value="${item.i}">${escapeHtml(item.p.name)}</option>`).join('')}
+                            </optgroup>
+                        `).join('');
+                    })()}
+                </select>
+                <small style="color: var(--text-muted); display: block; margin-top: 6px; font-size: 0.8rem;">
+                    <span data-i18n="presets_info"></span>
+                    <br>
+                    <span style="font-style: italic; opacity: 0.8;">(Quelle: Herstellerdaten & Community-Messreihen, Stand 2026)</span>
+                </small>
+            </div>
+        `;
+    }
+
+    modalBody += `
+        <div class="form-group">
+            <label for="m-printer-name" data-i18n="name"></label>
+            <input type="text" class="form-control" id="m-printer-name" placeholder="" value="${printer ? escapeHtml(printer.name) : ''}" required>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="m-printer-price" data-i18n="purchase_price"></label>
+                <input type="number" class="form-control" id="m-printer-price" step="0.01" min="0" value="${printer ? printer.purchase_price : ''}" required>
+            </div>
+            <div class="form-group">
+                <label for="m-printer-date" data-i18n="purchase_date"></label>
+                <input type="date" class="form-control" id="m-printer-date" value="${printer ? printer.purchase_date : new Date().toISOString().split('T')[0]}" required>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="m-printer-wattage" data-i18n="max_wattage"></label>
+                <input type="number" class="form-control" id="m-printer-wattage" min="1" value="${printer ? printer.max_wattage : '350'}" required>
+            </div>
+            <div class="form-group">
+                <label for="m-printer-factor">
+                    <span data-i18n="power_factor"></span>
+                    <span class="label-info" onclick="showInfo(event, 'pf_definition_hint')" data-i18n-title="pf_definition_hint">?</span>
+                </label>
+                <input type="number" class="form-control" id="m-printer-factor" step="0.001" min="0" max="1" value="${printer ? printer.power_factor : '0.120'}" required>
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 10px;">
+            <label class="form-switch">
+                <span class="switch">
+                    <input type="checkbox" id="m-printer-has-bed" ${printer && printer.has_heated_bed ? 'checked' : ''} onchange="toggleWattage('bed')">
+                    <span class="slider"></span>
+                </span>
+                <span data-i18n="heated_bed"></span>
+            </label>
+        </div>
+        <div id="m-printer-bed-wattage-container" class="${printer && printer.has_heated_bed ? '' : 'hidden'}">
+            <div class="form-group">
+                <label for="m-printer-heatbed" data-i18n="heatbed_power"></label>
+                <input type="number" class="form-control" id="m-printer-heatbed" min="0" value="${printer ? printer.max_wattage_bed : '0'}">
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 10px;">
+            <label class="form-switch">
+                <span class="switch">
+                    <input type="checkbox" id="m-printer-has-chamber" ${printer && printer.has_heated_chamber ? 'checked' : ''} onchange="toggleWattage('chamber')">
+                    <span class="slider"></span>
+                </span>
+                <span data-i18n="heated_chamber"></span>
+            </label>
+        </div>
+        <div id="m-printer-chamber-wattage-container" class="${printer && printer.has_heated_chamber ? '' : 'hidden'}">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="m-printer-chamber" data-i18n="chamber_power"></label>
+                    <input type="number" class="form-control" id="m-printer-chamber" min="0" value="${printer ? printer.chamber_wattage : '0'}">
+                </div>
+                <div class="form-group">
+                    <label for="m-printer-chamber-factor">
+                        <span data-i18n="chamber_factor"></span>
+                        <span class="label-info" onclick="showInfo(event, 'pf_definition_hint')" data-i18n-title="pf_definition_hint">?</span>
+                    </label>
+                    <input type="number" class="form-control" id="m-printer-chamber-factor" step="0.001" min="0" max="1" value="${printer ? printer.chamber_power_factor : '1.000'}">
+                </div>
+            </div>
+        </div>
+
+            <div class="form-group">
+                <label data-i18n="lifetime"></label>
+                <input type="text" class="form-control" id="m-printer-lifetime" value="${printer ? printer.expected_lifetime_hours : '10000'}" data-i18n-placeholder="time_hint">
+                <small class="input-hint" data-i18n="time_hint"></small>
+            </div>
+        <div class="form-group">
+            <label for="m-printer-pref-dryer">
+                <span data-i18n="preferred_dryer_optional"></span>
+                <span class="label-info" onclick="showInfo(event, 'dryer_assigned_hint')" data-i18n-title="dryer_assigned_hint">?</span>
+            </label>
+            <select id="m-printer-pref-dryer" class="form-control">
+                <option value="" data-i18n="none"></option>
+                ${ALL_DRYERS.map(d => `<option value="${d.id}" ${printer && printer.preferred_dryer_id === d.id ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}
+            </select>
+        </div>
+        ${calibsHtml}
+    `;
+    
+    document.getElementById('modal-body').innerHTML = modalBody;
+
+    const modalFooter = document.getElementById('modal-footer');
+    if (isEdit) {
+        modalFooter.classList.add('footer-actions-between');
+        modalFooter.innerHTML = `
+            <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary btn-sm" onclick='clonePrinter(${JSON.stringify(printer)})'>
+                    <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-copy"></use></svg>
+                    <span data-i18n="clone"></span>
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="confirmDeletePrinter(${printer.id}, '${escapeHtml(printer.name)}')">
+                    <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-trash"></use></svg>
+                    <span data-i18n="delete"></span>
+                </button>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary" onclick="closeModal()">
+                    <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-x"></use></svg>
+                    <span data-i18n="cancel"></span>
+                </button>
+                <button class="btn btn-primary" onclick="savePrinter(${printer.id})">
+                    <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-device-floppy"></use></svg>
+                    <span data-i18n="save"></span>
+                </button>
+            </div>
+        `;
+    } else {
+        modalFooter.classList.remove('footer-actions-between');
+        modalFooter.innerHTML = `
+            <button class="btn btn-secondary" onclick="closeModal()">
+                <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-x"></use></svg>
+                <span data-i18n="cancel"></span>
+            </button>
+            <button class="btn btn-primary" onclick="savePrinter(null)">
+                <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-device-floppy"></use></svg>
+                <span data-i18n="save"></span>
+            </button>
+        `;
+    }
+
+    openModal();
+    translatePage();
+}
+
+function applyPreset(index) {
+    if (index === "") return;
+    const p = ALL_PRINTER_PRESETS[parseInt(index)];
+    if (!p) return;
+    
+    document.getElementById('m-printer-name').value = p.name;
+    document.getElementById('m-printer-wattage').value = p.max_wattage;
+    document.getElementById('m-printer-factor').value = p.power_factor;
+    document.getElementById('m-printer-lifetime').value = p.expected_lifetime_hours;
+    
+    document.getElementById('m-printer-has-bed').checked = p.has_heated_bed;
+    document.getElementById('m-printer-heatbed').value = p.max_wattage_bed;
+    toggleWattage('bed');
+    
+    document.getElementById('m-printer-has-chamber').checked = p.has_heated_chamber;
+    document.getElementById('m-printer-chamber').value = p.chamber_wattage;
+    document.getElementById('m-printer-chamber-factor').value = p.chamber_power_factor;
+    toggleWattage('chamber');
+}
+
+async function savePrinter(id) {
+    let lifetimeHours = 0;
+    try {
+        lifetimeHours = parseTimeInput(document.getElementById('m-printer-lifetime').value, 'hours');
+    } catch(e) {
+        showToast(t('error') + ': ' + t('invalid_time_format'), 'error');
+        return;
+    }
+
+    const data = {
+        name: document.getElementById('m-printer-name').value,
+        purchase_price: parseFloat(document.getElementById('m-printer-price').value),
+        purchase_date: document.getElementById('m-printer-date').value,
+        max_wattage: parseInt(document.getElementById('m-printer-wattage').value),
+        power_factor: parseFloat(document.getElementById('m-printer-factor').value),
+        expected_lifetime_hours: Math.round(lifetimeHours),
+        preferred_dryer_id: document.getElementById('m-printer-pref-dryer').value ? parseInt(document.getElementById('m-printer-pref-dryer').value) : null,
+        has_heated_bed: document.getElementById('m-printer-has-bed').checked,
+        max_wattage_bed: parseInt(document.getElementById('m-printer-heatbed').value) || 0,
+        has_heated_chamber: document.getElementById('m-printer-has-chamber').checked,
+        chamber_wattage: parseInt(document.getElementById('m-printer-chamber').value) || 0,
+        chamber_power_factor: parseFloat(document.getElementById('m-printer-chamber-factor').value) || 1.0
+    };
+
+    if (!data.name || isNaN(data.purchase_price) || !data.purchase_date || !data.max_wattage || isNaN(data.power_factor)) {
+        showToast(t('fill_all_fields'), 'error');
+        return;
+    }
+
+    try {
+        if (id) {
+            await apiPut(`/api/printers/${id}`, data);
+            showToast(t('printer_updated'), 'success');
+        } else {
+            await apiPost('/api/printers', data);
+            showToast(t('printer_created'), 'success');
+        }
+        closeModal();
+        loadPrinters();
+    } catch (err) {
+        console.error('Error saving printer:', err);
+        showToast(t('error') + ': ' + err.message, 'error');
+    }
+}
+
+function confirmDeletePrinter(id, name) {
+    openConfirmModal(
+        t('delete'),
+        `"${name}" ${t('delete_confirm')}`,
+        async () => {
+            await apiDelete(`/api/printers/${id}`);
+            showToast(t('success'), 'success');
+            loadPrinters();
+        }
+    );
+}
+
+async function addPrinterCalib(printerId, printerMaxWattage) {
+    const filamentTypeId = parseInt(document.getElementById('nc-filament-type').value);
+    let duration = 0;
+    try {
+        duration = parseTimeInput(document.getElementById('nc-duration').value, 'hours');
+    } catch(e) {
+        showToast(t('error') + ': ' + t('invalid_time_format'), 'error');
+        return;
+    }
+    const kwhTotal = parseFloat(document.getElementById('nc-kwh').value);
+    
+    if (!filamentTypeId || duration <= 0 || isNaN(kwhTotal)) {
+        showToast(t('fill_all_fields'), 'error');
+        return;
+    }
+    
+    // PF = (kwhTotal / dauer_h) / (max_watt / 1000)
+    let pf = (kwhTotal / duration) / (printerMaxWattage / 1000);
+    if (pf > 1) pf = 1.0;
+    if (pf < 0) pf = 0.0;
+    
+    try {
+        await apiPost(`/api/printers/${printerId}/calibrations`, {
+            filament_type_id: filamentTypeId,
+            power_factor: pf
+        });
+        showToast(t('success') + `! Power Factor: ${formatNumber(pf, 3)}`, 'success');
+        closeModal();
+        loadPrinters();
+    } catch (e) {
+        showToast(t('error') + ': ' + e.message, 'error');
+    }
+}
+
+async function deletePrinterCalib(printerId, filamentTypeId) {
+    if(!confirm(t('delete_confirm'))) return;
+    try {
+        await apiDelete(`/api/printers/${printerId}/calibrations/${filamentTypeId}`);
+        showToast(t('success'), 'success');
+        closeModal();
+        loadPrinters();
+    } catch (e) {
+        showToast(t('error') + ': ' + e.message, 'error');
+    }
+}
+
+function toggleWattage(type) {
+    const isChecked = document.getElementById(`m-printer-has-${type}`).checked;
+    const container = document.getElementById(`m-printer-${type}-wattage-container`);
+    if (isChecked) {
+        container.classList.remove('hidden');
+    } else {
+        container.classList.add('hidden');
+    }
+}
+</script>
+{% endblock %}

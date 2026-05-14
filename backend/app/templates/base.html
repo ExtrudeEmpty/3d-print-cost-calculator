@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="" id="meta-description" data-i18n-attr="content:meta_description">
+    <title id="app-title">{% block title %}{% endblock %}</title>
+    <script>
+        // Sofortige Wiederherstellung von Theme und Akzentfarbe (Vermeidung von Blitzen)
+        const savedTheme = localStorage.getItem('app-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        
+        const savedAccent = localStorage.getItem('app-accent') || 'green';
+        document.documentElement.setAttribute('data-accent', savedAccent);
+    </script>
+    <link rel="stylesheet" href="/static/css/style.css?v=3">
+</head>
+<body>
+    <div class="mobile-header">
+        <div class="mobile-title" data-i18n="app_brand"></div>
+        <button class="theme-toggle-mobile" onclick="toggleTheme()" id="theme-toggle-mobile-btn">
+            <span id="theme-icon-mobile">
+                <svg class="icon"><use href="/static/icons/tabler-sprite.svg#tabler-moon"></use></svg>
+            </span>
+        </button>
+    </div>
+
+    <div class="app-layout">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-logo">
+                <div class="logo-icon">
+                    <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-printer"></use></svg>
+                </div>
+                <h1 data-i18n="app_brand"></h1>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-section-title" data-i18n="overview"></div>
+                    <a href="/dashboard" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}" id="nav-dashboard">
+                        <span class="nav-icon"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-layout-dashboard"></use></svg></span> <span data-i18n="dashboard"></span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title" data-i18n="orders"></div>
+                    <a href="/orders/new" class="nav-link {% if active_page == 'order_new' %}active{% endif %}" id="nav-order-new">
+                        <span class="nav-icon"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg></span> <span data-i18n="new_order"></span>
+                    </a>
+                    <a href="/orders" class="nav-link {% if active_page == 'orders' %}active{% endif %}" id="nav-orders">
+                        <span class="nav-icon"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-clipboard-list"></use></svg></span> <span data-i18n="order_history"></span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title" data-i18n="management"></div>
+                    <a href="/printers" class="nav-link {% if active_page == 'printers' %}active{% endif %}" id="nav-printers">
+                        <span class="nav-icon"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-printer"></use></svg></span> <span data-i18n="printers"></span>
+                    </a>
+                    <a href="/dryers" class="nav-link {% if active_page == 'dryers' %}active{% endif %}" id="nav-dryers">
+                        <span class="nav-icon"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-droplet-off"></use></svg></span> <span data-i18n="dryers"></span>
+                    </a>
+                    <a href="/materials" class="nav-link {% if active_page == 'materials' %}active{% endif %}" id="nav-materials">
+                        <span class="nav-icon"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-vinyl"></use></svg></span> <span data-i18n="materials"></span>
+                    </a>
+                    <a href="/maintenance" class="nav-link {% if active_page == 'maintenance' %}active{% endif %}" id="nav-maintenance">
+                        <span class="nav-icon"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-tools"></use></svg></span> <span data-i18n="maintenance"></span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-section-title" data-i18n="system"></div>
+                    <a href="/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}" id="nav-settings">
+                        <span class="nav-icon"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-settings"></use></svg></span> <span data-i18n="settings"></span>
+                    </a>
+                </div>
+
+                <div class="nav-section" style="margin-top: auto; padding: 1rem 1.5rem; border-top: 1px solid var(--border-subtle);">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <button class="btn btn-secondary btn-icon" id="theme-toggle" onclick="toggleTheme()" data-i18n-title="toggle_theme" title="">
+                            <span id="theme-icon"></span>
+                        </button>
+                    </div>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Modal Container -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal" id="modal">
+            <div class="modal-header">
+                <h3 id="modal-title" data-i18n="modal"></h3>
+                <button class="modal-close" onclick="closeModal()">
+                    <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-x"></use></svg>
+                </button>
+            </div>
+            <div id="modal-body"></div>
+            <div class="modal-footer" id="modal-footer"></div>
+        </div>
+    </div>
+
+    <!-- Mobile Bottom Navigation -->
+    <nav class="mobile-nav">
+        <a href="/dashboard" class="mobile-nav-item {% if active_page == 'dashboard' %}active{% endif %}">
+            <svg class="icon"><use href="/static/icons/tabler-sprite.svg#tabler-layout-dashboard"></use></svg>
+            <span data-i18n="dashboard"></span>
+        </a>
+        <a href="/orders" class="mobile-nav-item {% if active_page == 'orders' %}active{% endif %}">
+            <svg class="icon"><use href="/static/icons/tabler-sprite.svg#tabler-clipboard-list"></use></svg>
+            <span data-i18n="orders"></span>
+        </a>
+        <button class="mobile-nav-item {% if active_page in ['printers', 'materials', 'dryers', 'maintenance'] %}active{% endif %}" onclick="toggleMobileSubmenu(event)">
+            <svg class="icon"><use href="/static/icons/tabler-sprite.svg#tabler-box"></use></svg>
+            <span data-i18n="management"></span>
+        </button>
+        <a href="/settings" class="mobile-nav-item {% if active_page == 'settings' %}active{% endif %}">
+            <svg class="icon"><use href="/static/icons/tabler-sprite.svg#tabler-settings"></use></svg>
+            <span data-i18n="settings"></span>
+        </a>
+    </nav>
+
+    <!-- Mobile Submenu Popover -->
+    <div class="mobile-submenu-overlay" id="mobile-submenu-overlay" onclick="toggleMobileSubmenu(event)">
+        <div class="mobile-submenu" id="mobile-submenu">
+            <div class="mobile-submenu-header">
+                <h3 data-i18n="management"></h3>
+            </div>
+            <div class="mobile-submenu-grid">
+                <a href="/printers" class="submenu-item {% if active_page == 'printers' %}active{% endif %}">
+                    <div class="submenu-icon"><svg class="icon"><use href="/static/icons/tabler-sprite.svg#tabler-printer"></use></svg></div>
+                    <span data-i18n="printers"></span>
+                </a>
+                <a href="/dryers" class="submenu-item {% if active_page == 'dryers' %}active{% endif %}">
+                    <div class="submenu-icon"><svg class="icon"><use href="/static/icons/tabler-sprite.svg#tabler-droplet-off"></use></svg></div>
+                    <span data-i18n="dryers"></span>
+                </a>
+                <a href="/materials" class="submenu-item {% if active_page == 'materials' %}active{% endif %}">
+                    <div class="submenu-icon"><svg class="icon"><use href="/static/icons/tabler-sprite.svg#tabler-vinyl"></use></svg></div>
+                    <span data-i18n="materials"></span>
+                </a>
+                <a href="/maintenance" class="submenu-item {% if active_page == 'maintenance' %}active{% endif %}">
+                    <div class="submenu-icon"><svg class="icon"><use href="/static/icons/tabler-sprite.svg#tabler-tools"></use></svg></div>
+                    <span data-i18n="maintenance"></span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js?v=3"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
+

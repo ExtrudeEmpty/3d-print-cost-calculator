@@ -1,0 +1,50 @@
+[
+    {
+        "brand": "Bambu Lab",
+        "name": "AMS (Standard)",
+        "max_wattage": 0,
+        "power_factor": 1.0,
+        "has_ams": true,
+        "ams_wattage": 6
+    },
+    {
+        "brand": "Bambu Lab",
+        "name": "AMS 2 Pro (Heated)",
+        "max_wattage": 170,
+        "power_factor": 0.35,
+        "has_ams": true,
+        "ams_wattage": 8
+    },
+    {
+        "brand": "Bambu Lab",
+        "name": "AMS HT (Industrial)",
+        "max_wattage": 250,
+        "power_factor": 0.40,
+        "has_ams": true,
+        "ams_wattage": 10
+    },
+    {
+        "brand": "Sunlu",
+        "name": "S2 Dryer Box",
+        "max_wattage": 48,
+        "power_factor": 0.60,
+        "has_ams": false,
+        "ams_wattage": 0
+    },
+    {
+        "brand": "Sunlu",
+        "name": "S4 Dryer (4 Spools)",
+        "max_wattage": 330,
+        "power_factor": 0.25,
+        "has_ams": false,
+        "ams_wattage": 0
+    },
+    {
+        "brand": "Eibos",
+        "name": "Cyclopes",
+        "max_wattage": 150,
+        "power_factor": 0.45,
+        "has_ams": false,
+        "ams_wattage": 0
+    }
+]

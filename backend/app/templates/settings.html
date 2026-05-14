@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% set active_page = "settings" %}
+
+{% block title %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 data-i18n="settings"></h2>
+        <p class="subtitle" data-i18n="overview_subtitle"></p>
+    </div>
+</div>
+
+<div style="max-width: 700px;">
+    <div class="card">
+        <form id="settings-form" onsubmit="return false;">
+            <div class="form-section-title">
+                <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-palette"></use></svg>
+                <span data-i18n="ui_settings"></span>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label for="lang-select">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-world"></use></svg>
+                        <span data-i18n="language"></span>
+                    </label>
+                    <select id="lang-select" class="form-control" onchange="updateAllFormatting()">
+                        <!-- Dynamic content -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="number-locale-select">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-math-symbols"></use></svg>
+                        <span data-i18n="number_format"></span>
+                    </label>
+                    <select id="number-locale-select" class="form-control" onchange="updateAllFormatting()">
+                        <option value="de-DE">DE (1.234,56)</option>
+                        <option value="en-US">US (1,234.56)</option>
+                        <option value="en-GB">UK (1,234.56)</option>
+                        <option value="fr-FR">FR (1 234,56)</option>
+                        <option value="ch-CH">CH (1'234.56)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Design & Akzent -->
+            <div class="form-section">
+                <h4 data-i18n="ui_settings"></h4>
+                <div class="grid-2 theme-accent-row">
+                    <div class="form-group">
+                        <label data-i18n="theme"></label>
+                        <button class="btn btn-secondary btn-icon" id="theme-toggle-settings" onclick="toggleTheme()" data-i18n-title="toggle_theme" title="">
+                            <span id="theme-icon-settings"></span>
+                        </button>
+                    </div>
+                    <div class="form-group" id="accent-color-section">
+                        <label data-i18n="accent_color"></label>
+                        <div class="accent-selector">
+                            <div class="accent-dot green active" onclick="setAccent('green')" data-accent="green"></div>
+                            <div class="accent-dot blue" onclick="setAccent('blue')" data-accent="blue"></div>
+                            <div class="accent-dot purple" onclick="setAccent('purple')" data-accent="purple"></div>
+                            <div class="accent-dot orange" onclick="setAccent('orange')" data-accent="orange"></div>
+                            <div class="accent-dot gold" onclick="setAccent('gold')" data-accent="gold"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-3">
+                <div class="form-group">
+                    <label for="date-format-select">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-calendar"></use></svg>
+                        <span data-i18n="date_format"></span>
+                    </label>
+                    <select id="date-format-select" class="form-control" onchange="updateAllFormatting()">
+                        <option value="DD.MM.YYYY">DD.MM.YYYY</option>
+                        <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                        <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="currency-symbol-select">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-coin"></use></svg>
+                        <span data-i18n="currency_symbol"></span>
+                    </label>
+                    <select id="currency-symbol-select" class="form-control" onchange="updateCurrencyPosLabels(); updateAllFormatting()">
+                        <option value="€">€ (Euro)</option>
+                        <option value="$">$ (Dollar)</option>
+                        <option value="£">£ (Pfund)</option>
+                        <option value="¥">¥ (Yen)</option>
+                        <option value="zł">zł (Złoty)</option>
+                        <option value="Kč">Kč (Koruna)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="currency-pos-select">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-map-pin"></use></svg>
+                        <span data-i18n="currency_position"></span>
+                    </label>
+                    <select id="currency-pos-select" class="form-control" onchange="updateAllFormatting()">
+                        <option value="start">€4.20</option>
+                        <option value="start_with_space">€ 4.20</option>
+                        <option value="end">4.20€</option>
+                        <option value="end_with_space">4.20 €</option>
+                    </select>
+                </div>
+            </div>
+
+            <hr style="border: none; border-top: 1px solid var(--border-subtle); margin: 1.5rem 0;">
+
+            <div class="form-section-title">
+                <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-calculator"></use></svg>
+                <span data-i18n="calculation_parameters"></span>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="electricity_price">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-bolt"></use></svg>
+                        <span data-i18n="electricity_cost_label"></span>
+                    </label>
+                    <input type="number" class="form-control" id="electricity_price"
+                           step="0.0001" min="0.0001"
+                           value="{{ settings.electricity_price_per_kwh }}" required>
+                    <small class="text-muted" style="font-size: 0.75rem; margin-top: 0.3rem; display: block;" data-i18n="electricity_hint"></small>
+                </div>
+                <div class="form-group">
+                    <label for="maintenance_rate">
+                        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-tools"></use></svg>
+                        <span data-i18n="maintenance_total"></span>
+                    </label>
+                    <input type="number" class="form-control" id="maintenance_rate"
+                           step="0.01" min="0"
+                           value="{{ settings.maintenance_cost_per_hour }}" required>
+                    <small class="text-muted" style="font-size: 0.75rem; margin-top: 0.3rem; display: block;" data-i18n="maintenance_hint"></small>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="labor_rate">
+                    <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-user"></use></svg>
+                    <span data-i18n="labor_rate_label"></span>
+                </label>
+                <input type="number" class="form-control" id="labor_rate"
+                       step="0.01" min="0"
+                       value="{{ settings.hourly_labor_rate }}" required>
+                <small class="text-muted" style="font-size: 0.75rem; margin-top: 0.3rem; display: block;" data-i18n="labor_hint"></small>
+            </div>
+
+            <hr style="border: none; border-top: 1px solid var(--border-subtle); margin: 1.5rem 0;">
+
+            <div class="form-group">
+                <label>
+                    <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-chart-bar"></use></svg>
+                    <span data-i18n="price_tiers_label"></span>
+                </label>
+                <small class="text-muted" style="font-size: 0.75rem; margin-top: 0.3rem; display: block; margin-bottom: 0.75rem;" data-i18n="price_tiers_hint"></small>
+
+                <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 0.75rem; margin-bottom: 0.25rem;">
+                    <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;"><span data-i18n="tier"></span></div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;"><span data-i18n="marge_percent"></span></div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;"><span data-i18n="labor_factor"></span></div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem;">
+                    <div style="font-size: 0.85rem;"><svg class="icon" width="24" height="24" viewBox="0 0 24 24" style="margin-right:4px;"><use href="/static/icons/tabler-sprite.svg#tabler-briefcase"></use></svg> <span data-i18n="business"></span></div>
+                    <div>
+                        <input type="number" class="form-control" id="margin_business"
+                               step="0.1" min="0" value="{{ settings.margin_business }}" required>
+                    </div>
+                    <div>
+                        <input type="number" class="form-control" id="labor_factor_business"
+                               step="0.1" min="0" max="1" value="{{ settings.labor_factor_business }}" required>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem;">
+                    <div style="font-size: 0.85rem;"><svg class="icon" width="24" height="24" viewBox="0 0 24 24" style="margin-right:4px;"><use href="/static/icons/tabler-sprite.svg#tabler-users"></use></svg> <span data-i18n="friends"></span></div>
+                    <div>
+                        <input type="number" class="form-control" id="margin_friends"
+                               step="0.1" min="0" value="{{ settings.margin_friends }}" required>
+                    </div>
+                    <div>
+                        <input type="number" class="form-control" id="labor_factor_friends"
+                               step="0.1" min="0" max="1" value="{{ settings.labor_factor_friends }}" required>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem;">
+                    <div style="font-size: 0.85rem;"><svg class="icon" width="24" height="24" viewBox="0 0 24 24" style="margin-right:4px;"><use href="/static/icons/tabler-sprite.svg#tabler-home"></use></svg> <span data-i18n="private"></span></div>
+                    <div>
+                        <input type="number" class="form-control" id="margin_private"
+                               step="0.1" min="0" value="{{ settings.margin_private }}" required>
+                    </div>
+                    <div>
+                        <input type="number" class="form-control" id="labor_factor_private"
+                               step="0.1" min="0" max="1" value="{{ settings.labor_factor_private }}" required>
+                    </div>
+                </div>
+            </div>
+
+            <button type="button" class="btn btn-primary" onclick="saveSettings()" id="btn-save-settings" style="width: 100%; justify-content: center; padding: 0.8rem 3.5rem;">
+                <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-device-floppy"></use></svg>
+                <span data-i18n="save_settings"></span>
+            </button>
+        </form>
+
+        <div id="settings-saved" class="hidden mt-2">
+            <div class="alert alert-success">
+                <span class="alert-icon"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-check"></use></svg></span>
+                <span data-i18n="order_saved_success"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-2">
+        <div class="card-header">
+            <span class="card-title"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-notes"></use></svg> <span data-i18n="calc_formula_title"></span></span>
+        </div>
+        <div style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.8;">
+            <div class="cost-row"><span class="cost-label"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-vinyl"></use></svg> <span data-i18n="material_cost"></span></span><span class="cost-value" style="font-size: 0.78rem;" data-i18n="material_cost_formula"></span></div>
+            <div class="cost-row"><span class="cost-label"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-bolt"></use></svg> <span data-i18n="electricity_total"></span></span><span class="cost-value" style="font-size: 0.78rem;" data-i18n="electricity_cost_formula"></span></div>
+            <div class="cost-row"><span class="cost-label"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-trending-down"></use></svg> <span data-i18n="depreciation_total"></span></span><span class="cost-value" style="font-size: 0.78rem;" data-i18n="depreciation_formula"></span></div>
+            <div class="cost-row"><span class="cost-label"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-tools"></use></svg> <span data-i18n="maintenance"></span></span><span class="cost-value" style="font-size: 0.78rem;" data-i18n="maintenance_formula"></span></div>
+            <div class="cost-row"><span class="cost-label"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-user"></use></svg> <span data-i18n="labor_cost"></span></span><span class="cost-value" style="font-size: 0.78rem;" data-i18n="labor_cost_formula"></span></div>
+            <div class="cost-row subtotal"><span class="cost-label"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-coin"></use></svg> <span data-i18n="total_price"></span></span><span class="cost-value" style="font-size: 0.78rem;" data-i18n="total_price_formula"></span></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function saveSettings() {
+    const data = {
+        electricity_price_per_kwh: parseFloat(document.getElementById('electricity_price').value),
+        hourly_labor_rate: parseFloat(document.getElementById('labor_rate').value),
+        maintenance_cost_per_hour: parseFloat(document.getElementById('maintenance_rate').value),
+        margin_business: parseFloat(document.getElementById('margin_business').value),
+        margin_friends: parseFloat(document.getElementById('margin_friends').value),
+        margin_private: parseFloat(document.getElementById('margin_private').value),
+        labor_factor_business: parseFloat(document.getElementById('labor_factor_business').value),
+        labor_factor_friends: parseFloat(document.getElementById('labor_factor_friends').value),
+        labor_factor_private: parseFloat(document.getElementById('labor_factor_private').value),
+    };
+
+    const btn = document.getElementById('btn-save-settings');
+    btn.disabled = true;
+    btn.textContent = t('loading');
+
+    try {
+        await apiPut('/api/settings', data);
+        document.getElementById('settings-saved').classList.remove('hidden');
+        setTimeout(() => document.getElementById('settings-saved').classList.add('hidden'), 4000);
+        showToast(t('success'), 'success');
+    } catch (err) {
+        showToast(t('error') + ': ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-device-floppy"></use></svg> <span data-i18n="save_settings">` + t('save_settings') + '</span>';
+        translatePage();
+    }
+}
+function updateCurrencyPosLabels() {
+    const symbol = document.getElementById('currency-symbol-select').value;
+    const posSelect = document.getElementById('currency-pos-select');
+    if (!posSelect) return;
+    
+    posSelect.options[0].textContent = `${symbol}4.20 (${t('start')})`;
+    posSelect.options[1].textContent = `${symbol} 4.20 (${t('start_with_space')})`;
+    posSelect.options[2].textContent = `4.20${symbol} (${t('end')})`;
+    posSelect.options[3].textContent = `4.20 ${symbol} (${t('end_with_space')})`;
+}
+
+async function loadAvailableLanguages() {
+    try {
+        const langs = await apiGet('/api/settings/languages');
+        const select = document.getElementById('lang-select');
+        const currentLang = localStorage.getItem('app-lang') || 'en';
+        
+        select.innerHTML = langs.map(l => 
+            `<option value="${l.code}" ${l.code === currentLang ? 'selected' : ''}>${escapeHtml(l.name)}</option>`
+        ).join('');
+    } catch (err) {
+        console.error('Failed to load languages:', err);
+    }
+}
+
+// Ensure labels are correct on load
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadAvailableLanguages();
+    // Small delay to ensure preferences are loaded first
+    setTimeout(updateCurrencyPosLabels, 500);
+});
+</script>
+{% endblock %}

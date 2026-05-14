@@ -1,0 +1,56 @@
+services:
+  registry:
+    image: registry:2
+    container_name: registry
+    ports:
+      - "5000:5000"
+    volumes:
+      - registry_data:/var/lib/registry
+    restart: unless-stopped
+
+  db:
+    image: postgres:16
+    container_name: 3d-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-3d_kosten}
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    image: localhost:5000/3d-backend:latest
+    container_name: 3d-backend
+    ports:
+      - "80:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  dockhand:
+    image: fnsys/dockhand:latest
+    container_name: dockhand
+    ports:
+      - "3000:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dockhand_data:/app/data
+    environment:
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=${DOCKHAND_ADMIN_PASSWORD}
+      - DOCKHAND_CONNECTION=LXC-Docker
+      - DOCKHAND_DRIVER=distribution
+      - DOCKHAND_BASE_URI=http://registry:5000/v2/
+      - DOCKHAND_AUTH_DRIVER=null
+    restart: unless-stopped
+
+volumes:
+  registry_data:
+  db_data:
+  dockhand_data:

@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% set active_page = "dashboard" %}
+
+{% block title %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2 data-i18n="dashboard"></h2>
+        <p class="subtitle" data-i18n="overview_subtitle"></p>
+    </div>
+    <a href="/orders/new" class="btn btn-primary" id="btn-new-order">
+        <svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-plus"></use></svg>
+        <span data-i18n="new_order"></span>
+    </a>
+</div>
+
+<!-- KPI Cards -->
+<div class="kpi-grid" id="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-label" data-i18n="total_revenue"></div>
+        <div class="kpi-value" id="kpi-revenue">—</div>
+        <div class="kpi-sub" id="kpi-orders-total">—</div>
+    </div>
+    <div class="kpi-card success">
+        <div class="kpi-label" data-i18n="total_profit"></div>
+        <div class="kpi-value" id="kpi-profit">—</div>
+        <div class="kpi-sub" id="kpi-margin">—</div>
+    </div>
+    <div class="kpi-card accent">
+        <div class="kpi-label" data-i18n="orders_this_month"></div>
+        <div class="kpi-value" id="kpi-month-orders">—</div>
+        <div class="kpi-sub" id="kpi-month-profit">—</div>
+    </div>
+</div>
+
+<div class="grid-2">
+    <!-- Printer Amortization -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title" data-i18n="printer_amortization"></span>
+        </div>
+        <div id="printer-amort">
+            <div class="loading-overlay"><div class="spinner"></div> <span data-i18n="loading"></span></div>
+        </div>
+    </div>
+
+    <!-- Right Column -->
+    <div>
+        <!-- Maintenance Alerts -->
+        <div class="card mb-2">
+            <div class="card-header">
+                <span class="card-title" data-i18n="maintenance_alerts"></span>
+            </div>
+            <div id="maintenance-alerts">
+                <div class="loading-overlay"><div class="spinner"></div> <span data-i18n="loading"></span></div>
+            </div>
+        </div>
+
+        <!-- Top Materials -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title" data-i18n="top_materials"></span>
+            </div>
+            <div id="top-materials">
+                <div class="loading-overlay"><div class="spinner"></div> <span data-i18n="loading"></span></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+    await window.appReady;
+    loadDashboard();
+});
+
+async function loadDashboard() {
+    try {
+        const data = await apiGet('/api/dashboard/stats');
+
+        // KPIs
+        document.getElementById('kpi-revenue').textContent = formatCurrency(data.total_revenue);
+        document.getElementById('kpi-profit').textContent = formatCurrency(data.total_profit);
+        document.getElementById('kpi-orders-total').textContent = data.total_orders + ' ' + t('orders');
+        document.getElementById('kpi-margin').textContent = t('margin') + ': ' + data.avg_profit_margin_percent + '%';
+        document.getElementById('kpi-month-orders').textContent = data.orders_this_month;
+        document.getElementById('kpi-month-profit').textContent = t('profit') + ': ' + formatCurrency(data.profit_this_month);
+
+        // Printer Amortization
+        const amortEl = document.getElementById('printer-amort');
+        if (data.printers.length === 0) {
+            amortEl.innerHTML = `<div class="empty-state"><div class="empty-icon"><svg class="icon" width="48" height="48" viewBox="0 0 24 24" style="opacity:0.3"><use href="/static/icons/tabler-sprite.svg#tabler-printer-off"></use></svg></div><p data-i18n="no_printers"></p><a href="/printers" class="btn btn-secondary btn-sm" data-i18n="add_printer"></a></div>`;
+        } else {
+            amortEl.innerHTML = data.printers.map(p => `
+                <div class="progress-bar-wrapper">
+                    <div class="progress-label">
+                        <span class="name">${escapeHtml(p.name)}</span>
+                        <span class="value">${formatNumber(p.amortization_percent, 1)}%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill ${p.is_amortized ? 'amortized' : ''}"
+                             style="width: ${Math.min(p.amortization_percent, 100)}%"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">
+                        <span>${formatDuration(p.total_print_hours, 'hours', false)}</span>
+                        <span>${t('revenue_short')}: ${formatCurrency(p.total_revenue)}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Maintenance Alerts
+        const alertsEl = document.getElementById('maintenance-alerts');
+        if (data.maintenance_alerts.length === 0) {
+            alertsEl.innerHTML = `<div class="alert alert-success"><span class="alert-icon"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-circle-check"></use></svg></span> <span data-i18n="maintenance_all_ok"></span></div>`;
+        } else {
+            alertsEl.innerHTML = data.maintenance_alerts.map(a => `
+                <div class="alert alert-warning">
+                    <span class="alert-icon"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><use href="/static/icons/tabler-sprite.svg#tabler-alert-triangle"></use></svg></span>
+                    <div><strong>${escapeHtml(a.printer_name)}</strong><br>${escapeHtml(a.message)}</div>
+                </div>
+            `).join('');
+        }
+
+        // Top Materials
+        const matsEl = document.getElementById('top-materials');
+        if (data.top_materials.length === 0) {
+            matsEl.innerHTML = `<div class="empty-state"><div class="empty-icon"><svg class="icon" width="48" height="48" viewBox="0 0 24 24" style="opacity:0.3"><use href="/static/icons/tabler-sprite.svg#tabler-vinyl"></use></svg></div><p data-i18n="no_orders"></p></div>`;
+        } else {
+            matsEl.innerHTML = `<table style="width:100%"><thead><tr><th data-i18n="name"></th><th class="text-right" data-i18n="consumption"></th><th class="text-right" data-i18n="orders"></th></tr></thead><tbody>` +
+                data.top_materials.map(m => `
+                    <tr>
+                        <td data-label="${t('name')}">${escapeHtml(m.name)}</td>
+                        <td data-label="${t('consumption')}" class="text-right font-mono">${formatNumber(m.total_used_g, 0)}g</td>
+                        <td data-label="${t('orders')}" class="text-right font-mono">${m.order_count}</td>
+                    </tr>
+                `).join('') + '</tbody></table>';
+        }
+
+        translatePage();
+    } catch (err) {
+        console.error('Dashboard load error:', err);
+        showToast(t('error_loading_dashboard'), 'error');
+    }
+}
+</script>
+{% endblock %}
